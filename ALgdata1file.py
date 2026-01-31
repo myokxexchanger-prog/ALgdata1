@@ -328,8 +328,8 @@ BOT_MODE = os.getenv("BOT_MODE", "polling")
 ADMIN_ID = 6603268127
 OTP_ADMIN_ID = 6603268127
 
-BOT_USERNAME = "Algaitabot"
-CHANNEL = "@Algaitamoviestore"
+BOT_USERNAME = "Mininazifibot"
+CHANNEL = "@Minidatabase"
 
 # ========= DATABASE CONFIG =========
 DATABASE_URL = os.getenv("DATABASE_URL")

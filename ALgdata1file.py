@@ -3323,21 +3323,6 @@ from datetime import datetime
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ===============================
-# DEBUG CONFIG
-# ===============================
-ADMIN_ID = ADMIN_ID  # already defined in project
-
-def DBG(text):
-    try:
-        bot.send_message(
-            ADMIN_ID,
-            f"🐞 <b>DEBUG</b>\n<pre>{text}</pre>",
-            parse_mode="HTML"
-        )
-    except:
-        pass
-
-# ===============================
 # SERIES UPLOAD – FULL FLOW
 # ===============================
 
@@ -3412,7 +3397,7 @@ def series_done(m):
     bot.send_message(uid, text, parse_mode="HTML", reply_markup=kb)
 
 # ===============================
-# HAUSA CHOICE  ⭐ START DEBUG HERE
+# HAUSA CHOICE
 # ===============================
 @bot.callback_query_handler(
     func=lambda c: c.data in ["hausa_yes", "hausa_no"] and c.from_user.id in series_sessions
@@ -3422,19 +3407,13 @@ def handle_hausa_choice(c):
     sess = series_sessions.get(uid)
     bot.answer_callback_query(c.id)
 
-    DBG("=== HAUSA CHOICE CLICKED ===")
-    DBG(f"choice = {c.data}")
-    DBG(f"session(before) = {sess}")
-
     if c.data == "hausa_no":
         sess["hausa_matches"] = []
         sess["stage"] = "meta"
-        DBG("stage set to META (no hausa)")
         bot.send_message(uid, "📸 Turo poster + caption (suna da farashi)")
         return
 
     sess["stage"] = "hausa_names"
-    DBG("stage set to HAUSA_NAMES")
     bot.send_message(uid, "✍️ Rubuta sunayen Hausa series (layi-layi)")
 
 # ===============================
@@ -3464,11 +3443,6 @@ def receive_hausa_titles(m):
     sess["hausa_matches"] = matches
     sess["stage"] = "meta"
 
-    DBG("=== HAUSA TITLES RECEIVED ===")
-    DBG(f"titles = {titles}")
-    DBG(f"matches = {matches}")
-    DBG("stage set to META")
-
     bot.send_message(uid, "📸 Yanzu turo poster + caption (suna da farashi)")
 
 # ===============================
@@ -3482,10 +3456,6 @@ def series_finalize(m):
     uid = m.from_user.id
     sess = series_sessions.get(uid)
 
-    DBG("=== FINALIZE ENTERED ===")
-    DBG(f"stage = {sess.get('stage')}")
-    DBG(f"caption = {m.caption}")
-
     if sess.get("stage") != "meta":
         return
 
@@ -3494,17 +3464,12 @@ def series_finalize(m):
         has_comma = "," in raw_price
         price = int(raw_price.replace(",", "").strip())
     except:
-        DBG("❌ CAPTION PARSE FAILED")
         bot.send_message(uid, "❌ Caption bai dace ba.")
         return
-
-    DBG(f"title = {title}")
-    DBG(f"price = {price}")
 
     poster_file_id = m.photo[-1].file_id
     cur = conn.cursor()
 
-    DBG("INSERTING INTO series...")
     cur.execute(
         """
         INSERT INTO series (title, price, poster_file_id)
@@ -3514,33 +3479,20 @@ def series_finalize(m):
         (title, price, poster_file_id)
     )
     series_id = cur.fetchone()[0]
-    DBG(f"series created → id={series_id}")
 
     item_ids = []
     created_at = datetime.utcnow()
     group_key = str(uuid.uuid4())
 
-    DBG(f"group_key = {group_key}")
-    DBG(f"files_count = {len(sess['files'])}")
-
     for f in sess["files"]:
-        DBG("ABOUT TO SEND DOCUMENT TO STORAGE")
-        DBG(f"STORAGE_CHANNEL = {STORAGE_CHANNEL}")
-        DBG(f"file_id = {f['dm_file_id']}")
-
         msg = bot.send_document(
             STORAGE_CHANNEL,
             f["dm_file_id"],
             caption=f["file_name"]
         )
 
-        DBG("DOCUMENT SENT TO STORAGE")
-        DBG(f"msg_id = {msg.message_id}")
-
         doc = msg.document or msg.video
-        DBG(f"doc = {doc}")
 
-        DBG("INSERTING INTO items...")
         cur.execute(
             """
             INSERT INTO items
@@ -3559,20 +3511,12 @@ def series_finalize(m):
                 str(STORAGE_CHANNEL)
             )
         )
-        item_id = cur.fetchone()[0]
-        item_ids.append(item_id)
-        DBG(f"item inserted → id={item_id}")
+        item_ids.append(cur.fetchone()[0])
 
-    DBG("COMMITTING DB...")
     conn.commit()
-    DBG("DB COMMIT OK")
 
     display_price = f"{price:,}" if has_comma else str(price)
     ids_str = "_".join(str(i) for i in item_ids)
-
-    DBG("ABOUT TO SEND PUBLIC POST")
-    DBG(f"CHANNEL = {CHANNEL}")
-    DBG(f"poster_file_id = {poster_file_id}")
 
     kb = InlineKeyboardMarkup()
     kb.add(
@@ -3590,8 +3534,6 @@ def series_finalize(m):
         parse_mode="HTML",
         reply_markup=kb
     )
-
-    DBG("PUBLIC POST SENT SUCCESSFULLY ✅")
 
     bot.send_message(uid, "🎉 Series an adana dukka series lafiya.")
     del series_sessions[uid]

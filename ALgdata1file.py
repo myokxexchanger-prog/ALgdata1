@@ -1331,28 +1331,38 @@ def user_buttons(message):
                 "⚠️ An samu matsala wajen nuna fina-finan wannan satin."
             )
         return
-# ======= TAIMAKO =======                
-    if txt == "HELP":                
-        kb = InlineKeyboardMarkup()                
+
+    # ======= TAIMAKO =======
+    if txt == "HELP":
+        kb = InlineKeyboardMarkup()
 
         # ALWAYS open admin DM directly – no callback, no message sending
-        if ADMIN_USERNAME:                
-            kb.add(InlineKeyboardButton("Contact Admin", url=f"https://t.me/{ADMIN_USERNAME}"))                
-        else:                
-            kb.add(InlineKeyboardButton("🆘 Support Help", url="https://t.me/{}".format(ADMIN_USERNAME)))                
+        if ADMIN_USERNAME:
+            kb.add(
+                InlineKeyboardButton(
+                    "Contact Admin",
+                    url=f"https://t.me/{ADMIN_USERNAME}"
+                )
+            )
+        else:
+            kb.add(
+                InlineKeyboardButton(
+                    "🆘 Support Help",
+                    url="https://t.me/{}".format(ADMIN_USERNAME)
+                )
+            )
 
-        bot.send_message(                
-            message.chat.id,                
-            "Need help? Contact the admin.",                
-            reply_markup=kb                
-        )                
-        return            
+        bot.send_message(
+            message.chat.id,
+            "Need help? Contact the admin.",
+            reply_markup=kb
+        )
+        return
 
-
-# ======= CART =======
-if txt == "Check cart":
-    show_cart(message.chat.id, message.from_user.id)
-    return
+    # ======= CART =======
+    if txt == "Check cart":
+        show_cart(message.chat.id, message.from_user.id)
+        return
 
 
 def clear_cart(uid):

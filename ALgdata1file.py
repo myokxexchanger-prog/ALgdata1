@@ -2091,18 +2091,17 @@ def show_cart(chat_id, user_id):
 @bot.callback_query_handler(func=lambda c: c.data == "weekly_films")
 def send_weekly_films(call):
     return send_weekly_list(call.message)
-
-
 # ---------- My Orders (UNPAID with per-item REMOVE) ----------
 ORDERS_PER_PAGE = 5
 
 def build_unpaid_orders_view(uid, page):
     offset = page * ORDERS_PER_PAGE
 
-    total = conn.execute(
+    cur.execute(
         "SELECT COUNT(*) FROM orders WHERE user_id=%s AND paid=0",
         (uid,)
-    ).fetchone()[0]
+    )
+    total = cur.fetchone()[0]
 
     if total == 0:
         kb = InlineKeyboardMarkup()
@@ -2115,7 +2114,7 @@ def build_unpaid_orders_view(uid, page):
         return "📩<b>There are no unpaid orders. \n\n Go to our channel to buy Films</b>", kb
 
     # ===== TOTAL AMOUNT =====
-    total_amount = conn.execute(
+    cur.execute(
         """
         SELECT COALESCE(SUM(
             CASE
@@ -2137,9 +2136,10 @@ def build_unpaid_orders_view(uid, page):
         ) x
         """,
         (uid,)
-    ).fetchone()[0]
+    )
+    total_amount = cur.fetchone()[0]
 
-    rows = conn.execute(
+    cur.execute(
         """
         SELECT
             o.id,
@@ -2158,7 +2158,8 @@ def build_unpaid_orders_view(uid, page):
         LIMIT %s OFFSET %s
         """,
         (uid, ORDERS_PER_PAGE, offset)
-    ).fetchall()
+    )
+    rows = cur.fetchall()
 
     text = f"📩<b>Your unpaid orders ({total})</b>\n\n"
     kb = InlineKeyboardMarkup()
@@ -2226,16 +2227,15 @@ def build_unpaid_orders_view(uid, page):
 def build_paid_orders_view(uid, page):
     offset = page * ORDERS_PER_PAGE
 
-    total = conn.execute(
+    cur.execute(
         "SELECT COUNT(*) FROM orders WHERE user_id=%s AND paid=1",
         (uid,)
-    ).fetchone()[0]
+    )
+    total = cur.fetchone()[0]
 
     if total == 0:
         kb = InlineKeyboardMarkup()
-        kb.add(
-            InlineKeyboardButton("🎥 PAID MOVIES", callback_data="my_movies")
-        )
+        kb.add(InlineKeyboardButton("🎥 PAID MOVIES", callback_data="my_movies"))
         kb.add(
             InlineKeyboardButton(
                 "🏘 Our Channel",
@@ -2244,7 +2244,7 @@ def build_paid_orders_view(uid, page):
         )
         return "📩 <b>There are no paid orders.\n\n Go to our Channel to buy films</b>", kb
 
-    rows = conn.execute(
+    cur.execute(
         """
         SELECT
             o.id,
@@ -2260,16 +2260,18 @@ def build_paid_orders_view(uid, page):
         LIMIT %s OFFSET %s
         """,
         (uid, ORDERS_PER_PAGE, offset)
-    ).fetchall()
+    )
+    rows = cur.fetchall()
 
     text = f"📩 <b>Your paid orders ({total})</b>\n\n"
     kb = InlineKeyboardMarkup()
 
     for oid, count, title, gk_count in rows:
-        delivered = conn.execute(
+        cur.execute(
             "SELECT COUNT(*) FROM user_movies WHERE order_id=%s AND user_id=%s",
             (oid, uid)
-        ).fetchone()[0]
+        )
+        delivered = cur.fetchone()[0]
 
         remain = count - delivered
 
@@ -2303,10 +2305,7 @@ def build_paid_orders_view(uid, page):
     if nav:
         kb.row(*nav)
 
-    kb.add(
-        InlineKeyboardButton("🎥PAID MOVIES", callback_data="my_movies")
-    )
-
+    kb.add(InlineKeyboardButton("🎥PAID MOVIES", callback_data="my_movies"))
     kb.add(
         InlineKeyboardButton(
             "🏘Our Channel",
@@ -2315,6 +2314,7 @@ def build_paid_orders_view(uid, page):
     )
 
     return text, kb
+
 
 # ---------- START handler (VIEW) ----------
 @bot.message_handler(commands=['start'])
@@ -3543,21 +3543,6 @@ def series_finalize(m):
 def all_callbacks(c):
     uid = c.from_user.id
     data = c.data
-
-    try:
-        bot.send_message(
-            ADMIN_ID,
-            f"🐞 <b>CALLBACK DEBUG</b>\n"
-            f"<pre>user_id = {uid}\ncallback_data = {data}</pre>",
-            parse_mode="HTML"
-        )
-    except:
-        pass
-
-    # duk handlers ɗinka a kasa
-
-
-# ======================= MAIN CALLBACK HANDLER =======================
 
 
 

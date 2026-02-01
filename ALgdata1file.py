@@ -3540,11 +3540,21 @@ def series_finalize(m):
 
 
 @bot.callback_query_handler(func=lambda c: True)
-def handle_callback(c):
+def all_callbacks(c):
     uid = c.from_user.id
-    data = c.data or ""
+    data = c.data
 
+    try:
+        bot.send_message(
+            ADMIN_ID,
+            f"🐞 <b>CALLBACK DEBUG</b>\n"
+            f"<pre>user_id = {uid}\ncallback_data = {data}</pre>",
+            parse_mode="HTML"
+        )
+    except:
+        pass
 
+    # duk handlers ɗinka a kasa
 
 
 # ======================= MAIN CALLBACK HANDLER =======================

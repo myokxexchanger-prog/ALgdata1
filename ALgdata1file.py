@@ -438,11 +438,15 @@ def paystack_callback():
 
 # ========= FEEDBACK =========
 def send_feedback_prompt(user_id, order_id):
+    cur = conn.cursor()
+
     cur.execute(
         "SELECT 1 FROM feedbacks WHERE order_id = %s",
         (order_id,)
     )
     exists = cur.fetchone()
+    cur.close()
+
     if exists:
         return
 
@@ -461,6 +465,7 @@ def send_feedback_prompt(user_id, order_id):
         "We hope you enjoyed your shopping 🥰\nPlease choose how you’re feeling right now.",
         reply_markup=kb
     )
+
 
 # ========= PAYSTACK WEBHOOK =========
 @app.route("/webhook", methods=["POST"])
@@ -494,6 +499,8 @@ def paystack_webhook():
     paid_amount = int(data.get("amount", 0) / 100)
     currency = data.get("currency")
 
+    cur = conn.cursor()
+
     cur.execute(
         "SELECT user_id, amount, paid FROM orders WHERE id = %s",
         (order_id,)
@@ -501,14 +508,17 @@ def paystack_webhook():
     row = cur.fetchone()
 
     if not row:
+        cur.close()
         return "Order not found", 200
 
     user_id, expected_amount, paid = row
 
     if paid == 1:
+        cur.close()
         return "Already processed", 200
 
     if paid_amount != expected_amount or currency != "NGN":
+        cur.close()
         return "Wrong payment", 200
 
     cur.execute(
@@ -518,6 +528,7 @@ def paystack_webhook():
     items_count = cur.fetchone()[0]
 
     if items_count == 0:
+        cur.close()
         return "Empty order", 200
 
     # ✅ CONFIRM PAYMENT
@@ -525,6 +536,8 @@ def paystack_webhook():
         "UPDATE orders SET paid = 1 WHERE id = %s",
         (order_id,)
     )
+    conn.commit()
+    cur.close()
 
     # ================= USER MESSAGE =================
     kb = InlineKeyboardMarkup()
@@ -565,7 +578,6 @@ Click download:""",
 
     print("✅ WEBHOOK PROCESSED:", order_id)
     return "OK", 200
-
 
 # ========= TELEGRAM WEBHOOK =========
 @app.route("/telegram", methods=["POST"])
@@ -1336,22 +1348,25 @@ def user_buttons(message):
         )                
         return            
 
-    # ======= CART =======            
-    if txt == "Check cart":            
-        show_cart(message.chat.id, message.from_user.id)            
-        return
+
+# ======= CART =======
+if txt == "Check cart":
+    show_cart(message.chat.id, message.from_user.id)
+    return
 
 
 def clear_cart(uid):
-    conn.execute(
+    cur = conn.cursor()
+    cur.execute(
         "DELETE FROM cart WHERE user_id = %s",
         (uid,)
     )
-    conn.commit()
+    cur.close()
 
 
 def get_cart(uid):
-    cur = conn.execute("""
+    cur = conn.cursor()
+    cur.execute("""
         SELECT
             c.item_id,
             i.title,
@@ -1362,11 +1377,17 @@ def get_cart(uid):
         WHERE c.user_id = %s
         ORDER BY c.id DESC
     """, (uid,))
-    return cur.fetchall()
+    rows = cur.fetchall()
+    cur.close()
+    return rows
 # ======================================
+
+
 def get_credits_for_user(user_id):
     return 0, []
 
+
+# ======================================
 # PARSE CAPTION (TITLE + PRICE)
 # ======================================
 def parse_caption_for_title_price(text):
@@ -1384,10 +1405,6 @@ def parse_caption_for_title_price(text):
         return parts[0].strip(), int(parts[1].strip())
 
     return None, None
-
-
-
-
 
 
 @bot.message_handler(

@@ -2299,8 +2299,6 @@ def start_handler(msg):
     bot.send_message(msg.chat.id, "Welcome!")
 
 # ========= BUYD (ITEM ONLY | DEEP LINK → DM) =========
-
-
 from psycopg2.extras import RealDictCursor
 import uuid
 import time
@@ -2361,7 +2359,7 @@ def groupitem_deeplink_handler(msg):
     item_ids_clean = [i["id"] for i in items]
     bot.send_message(uid, f"🧪 DEBUG: valid item_ids = {item_ids_clean}")
 
-    # ========= OWNERSHIP CHECK =========
+    # ========= OWNERSHIP CHECK (FIXED) =========
     try:
         cur.execute(
             f"""
@@ -2382,6 +2380,7 @@ def groupitem_deeplink_handler(msg):
     if owned:
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("📽 PAID MOVIES", callback_data="my_movies"))
+
         bot.send_message(
             uid,
             "✅ You have already purchased this movie.\n\n"
@@ -2460,15 +2459,6 @@ def groupitem_deeplink_handler(msg):
         cur.close()
         return
 
-    # ========= FIXED TITLE DISPLAY (GROUP_KEY SAFE) =========
-    unique_titles = [
-        i["title"]
-        for _, i in {
-            (i["group_key"] or f"single_{i['id']}"): i
-            for i in items
-        }.items()
-    ]
-
     # ========= FINAL =========
     kb = InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
@@ -2479,7 +2469,7 @@ def groupitem_deeplink_handler(msg):
         f"""🧺 <b>Confirm Purchase</b>
 
 🎬 <b>You will buy:</b>
-{", ".join(unique_titles)}
+{", ".join(i["title"] for i in items)}
 
 📦 Items: {item_count}
 💵 Total: ₦{total}
@@ -2490,6 +2480,7 @@ def groupitem_deeplink_handler(msg):
 
     bot.send_message(uid, f"🧪 DEBUG: FLOW END ({round(time.time()-start_ts,2)}s)")
     cur.close()
+
 
 # ================= ADMIN MANUAL SUPPORT SYSTEM ===========
 

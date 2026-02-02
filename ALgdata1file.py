@@ -2360,7 +2360,7 @@ def groupitem_deeplink_handler(msg):
     item_ids_clean = [i["id"] for i in items]
     bot.send_message(uid, f"🧪 DEBUG: valid item_ids = {item_ids_clean}")
 
-    # ========= OWNERSHIP CHECK (FIXED) =========
+    # ========= OWNERSHIP CHECK =========
     try:
         cur.execute(
             f"""
@@ -2460,6 +2460,18 @@ def groupitem_deeplink_handler(msg):
         cur.close()
         return
 
+    # ========= DISPLAY TITLES BY GROUP_KEY (FIXED) =========
+    display_titles = []
+    seen_groups = set()
+
+    for i in items:
+        key = i["group_key"] or f"single_{i['id']}"
+        if key not in seen_groups:
+            display_titles.append(i["title"])
+            seen_groups.add(key)
+
+    display_text = ", ".join(display_titles)
+
     # ========= FINAL =========
     kb = InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
@@ -2470,7 +2482,7 @@ def groupitem_deeplink_handler(msg):
         f"""🧺 <b>Confirm Purchase</b>
 
 🎬 <b>You will buy:</b>
-{", ".join(i["title"] for i in items)}
+{display_text}
 
 📦 Items: {item_count}
 💵 Total: ₦{total}

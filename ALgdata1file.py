@@ -381,8 +381,18 @@ app = Flask(__name__)
 
 
 def create_paystack_payment(user_id, order_id, amount, title):
-    if not PAYSTACK_SECRET or not PAYSTACK_REDIRECT_URL:
-        print("❌ Paystack env missing")
+    print("🧪 PAYSTACK DEBUG: function called")
+    print("🧪 user_id =", user_id)
+    print("🧪 order_id =", order_id)
+    print("🧪 amount =", amount)
+    print("🧪 title =", title)
+
+    if not PAYSTACK_SECRET:
+        print("❌ PAYSTACK DEBUG: PAYSTACK_SECRET missing")
+        return None
+
+    if not PAYSTACK_REDIRECT_URL:
+        print("❌ PAYSTACK DEBUG: PAYSTACK_REDIRECT_URL missing")
         return None
 
     headers = {
@@ -403,6 +413,10 @@ def create_paystack_payment(user_id, order_id, amount, title):
         }
     }
 
+    print("🧪 PAYSTACK DEBUG: payload =", payload)
+    print("🧪 PAYSTACK DEBUG: headers =", headers)
+    print("🧪 PAYSTACK DEBUG: endpoint =", f"{PAYSTACK_BASE}/transaction/initialize")
+
     try:
         r = requests.post(
             f"{PAYSTACK_BASE}/transaction/initialize",
@@ -410,17 +424,30 @@ def create_paystack_payment(user_id, order_id, amount, title):
             headers=headers,
             timeout=30
         )
+
+        print("🧪 PAYSTACK DEBUG: HTTP status =", r.status_code)
+        print("🧪 PAYSTACK DEBUG: raw response =", r.text)
+
         data = r.json()
+        print("🧪 PAYSTACK DEBUG: parsed json =", data)
+
         if not data.get("status"):
-            print("❌ Paystack error:", data)
+            print("❌ PAYSTACK DEBUG: status FALSE")
             return None
 
-        return data["data"]["authorization_url"]
+        auth_url = data.get("data", {}).get("authorization_url")
+        print("🧪 PAYSTACK DEBUG: authorization_url =", auth_url)
+
+        if not auth_url:
+            print("❌ PAYSTACK DEBUG: authorization_url missing")
+            return None
+
+        print("✅ PAYSTACK DEBUG: SUCCESS")
+        return auth_url
 
     except Exception as e:
-        print("❌ create_paystack_payment error:", e)
+        print("❌ PAYSTACK DEBUG: EXCEPTION =", repr(e))
         return None
-
 # ========= HOME / KEEP ALIVE =========
 @app.route("/")
 def home():
@@ -2359,7 +2386,7 @@ def groupitem_deeplink_handler(msg):
     item_ids_clean = [i["id"] for i in items]
     bot.send_message(uid, f"🧪 DEBUG: valid item_ids = {item_ids_clean}")
 
-    # ========= OWNERSHIP CHECK (FIXED) =========
+    # ========= OWNERSHIP CHECK =========
     try:
         cur.execute(
             f"""
@@ -2380,7 +2407,6 @@ def groupitem_deeplink_handler(msg):
     if owned:
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("📽 PAID MOVIES", callback_data="my_movies"))
-
         bot.send_message(
             uid,
             "✅ You have already purchased this movie.\n\n"
@@ -2459,6 +2485,15 @@ def groupitem_deeplink_handler(msg):
         cur.close()
         return
 
+    # ========= FIXED TITLE DISPLAY (GROUP_KEY SAFE) =========
+    unique_titles = [
+        i["title"]
+        for _, i in {
+            (i["group_key"] or f"single_{i['id']}"): i
+            for i in items
+        }.items()
+    ]
+
     # ========= FINAL =========
     kb = InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
@@ -2469,7 +2504,7 @@ def groupitem_deeplink_handler(msg):
         f"""🧺 <b>Confirm Purchase</b>
 
 🎬 <b>You will buy:</b>
-{", ".join(i["title"] for i in items)}
+{", ".join(unique_titles)}
 
 📦 Items: {item_count}
 💵 Total: ₦{total}
@@ -2480,7 +2515,6 @@ def groupitem_deeplink_handler(msg):
 
     bot.send_message(uid, f"🧪 DEBUG: FLOW END ({round(time.time()-start_ts,2)}s)")
     cur.close()
-
 
 # ================= ADMIN MANUAL SUPPORT SYSTEM ===========
 

@@ -2420,97 +2420,75 @@ def groupitem_deeplink_handler(msg):
     uid = msg.from_user.id
     start_ts = time.time()
 
-    bot.send_message(uid, "🧪 DEBUG: Buy handler triggered")
-
-    # ========= PARSE IDS =========
+    # ========= PARSE ITEM IDS =========
     try:
         raw = msg.text.split("groupitem_", 1)[1]
         sep = "_" if "_" in raw else ","
         item_ids = [int(x) for x in raw.split(sep) if x.strip().isdigit()]
-        bot.send_message(uid, f"🧪 DEBUG: Parsed item IDs → {item_ids}")
-    except Exception as e:
-        bot.send_message(uid, f"❌ DEBUG: Failed to parse IDs\n{e}")
+    except Exception:
+        bot.send_message(uid, "❌ Invalid item link.")
         return
 
     if not item_ids:
-        bot.send_message(uid, "❌ DEBUG: item_ids EMPTY → handler stops")
+        bot.send_message(uid, "❌ No items found.")
         return
 
-    placeholders = ",".join(["%s"] * len(item_ids))
     cur = conn.cursor(cursor_factory=RealDictCursor)
-
-    # ========= DB PING =========
-    try:
-        cur.execute("SELECT 1")
-        bot.send_message(uid, "🧪 DEBUG: DB connection OK")
-    except Exception as e:
-        bot.send_message(uid, f"❌ DEBUG: DB connection FAILED\n{e}")
-        cur.close()
-        return
+    placeholders = ",".join(["%s"] * len(item_ids))
 
     # ========= FETCH ITEMS =========
-    try:
-        cur.execute(
-            f"""
-            SELECT id, title, price, file_id, group_key
-            FROM items
-            WHERE id IN ({placeholders})
-            """,
-            tuple(item_ids)
-        )
-        items = cur.fetchall()
-        bot.send_message(uid, f"🧪 DEBUG: Items fetched → {len(items)}")
-        bot.send_message(uid, f"🧪 DEBUG: Raw items → {items}")
-    except Exception as e:
-        bot.send_message(uid, f"❌ DEBUG: DB error fetching items\n{e}")
-        cur.close()
-        return
+    cur.execute(
+        f"""
+        SELECT id, title, price, file_id, group_key
+        FROM items
+        WHERE id IN ({placeholders})
+        """,
+        tuple(item_ids)
+    )
+    items = cur.fetchall()
 
     if not items:
-        bot.send_message(uid, "❌ DEBUG: NO ITEMS FOUND IN DB")
+        bot.send_message(uid, "❌ Items not available.")
         cur.close()
         return
 
-    # ========= FILE_ID CHECK =========
-    for i in items:
+    # ========= FILE_ID REQUIRED =========
+    items = [i for i in items if i.get("file_id")]
+    if not items:
+        bot.send_message(uid, "❌ Item files not ready yet.")
+        cur.close()
+        return
+
+    # ========= OWNERSHIP CHECK (STRONG BY FILE_ID) =========
+    file_ids = [i["file_id"] for i in items]
+
+    cur.execute(
+        f"""
+        SELECT 1 FROM user_movies
+        WHERE user_id=%s AND file_id IN ({",".join(["%s"] * len(file_ids))})
+        LIMIT 1
+        """,
+        (uid, *file_ids)
+    )
+
+    if cur.fetchone():
+        kb = InlineKeyboardMarkup()
+        kb.add(
+            InlineKeyboardButton("📽 PAID MOVIES", callback_data="my_movies")
+        )
+
         bot.send_message(
             uid,
-            f"🧪 DEBUG ITEM → id={i['id']} | price={i['price']} | file_id={'YES' if i['file_id'] else 'NO'} | group={i['group_key']}"
+            "✅ You have already purchased this movie.\n\n"
+            "Please check your *Paid Movies* to download it again.",
+            parse_mode="Markdown",
+            reply_markup=kb
         )
 
-    items = [i for i in items if i.get("file_id")]
-    bot.send_message(uid, f"🧪 DEBUG: Items WITH file_id → {len(items)}")
-
-    if not items:
-        bot.send_message(uid, "❌ DEBUG: All items missing file_id → STOP")
         cur.close()
         return
 
-    display_title = f"{len(items)} item(s)"
-
-    # ========= OWNERSHIP =========
-    try:
-        cur.execute(
-            f"""
-            SELECT 1 FROM user_movies
-            WHERE user_id=%s AND item_id IN ({placeholders})
-            LIMIT 1
-            """,
-            (uid, *[i["id"] for i in items])
-        )
-        owned = cur.fetchone()
-        bot.send_message(uid, f"🧪 DEBUG: Ownership → {bool(owned)}")
-    except Exception as e:
-        bot.send_message(uid, f"❌ DEBUG: Ownership query FAILED\n{e}")
-        cur.close()
-        return
-
-    if owned:
-        bot.send_message(uid, "ℹ️ DEBUG: User already owns item(s)")
-        cur.close()
-        return
-
-    # ========= TOTAL =========
+    # ========= GROUP_KEY PRICING =========
     groups = {}
     for i in items:
         key = i["group_key"] or f"single_{i['id']}"
@@ -2518,32 +2496,44 @@ def groupitem_deeplink_handler(msg):
             groups[key] = int(i["price"] or 0)
 
     total = sum(groups.values())
-    bot.send_message(uid, f"🧪 DEBUG: Groups → {groups}")
-    bot.send_message(uid, f"🧪 DEBUG: TOTAL → ₦{total}")
-
     if total <= 0:
-        bot.send_message(uid, "❌ DEBUG: TOTAL IS ZERO → Paystack will fail")
+        bot.send_message(uid, "❌ Invalid price configuration.")
         cur.close()
         return
 
-    # ========= CREATE ORDER =========
-    order_id = str(uuid.uuid4())
-    bot.send_message(uid, f"🧪 DEBUG: Creating order → {order_id}")
+    # ========= ITEM COUNT =========
+    item_count = len(items)
 
-    try:
+    # ========= REUSE UNPAID ORDER =========
+    item_ids_tuple = tuple(i["id"] for i in items)
+
+    cur.execute(
+        f"""
+        SELECT o.id
+        FROM orders o
+        JOIN order_items oi ON oi.order_id = o.id
+        WHERE o.user_id=%s
+          AND o.paid=0
+          AND oi.item_id IN ({",".join(["%s"] * len(item_ids_tuple))})
+        GROUP BY o.id
+        HAVING COUNT(DISTINCT oi.item_id) = %s
+        LIMIT 1
+        """,
+        (uid, *item_ids_tuple, len(item_ids_tuple))
+    )
+
+    row = cur.fetchone()
+
+    if row:
+        order_id = row["id"]
+    else:
+        order_id = str(uuid.uuid4())
         cur.execute(
             "INSERT INTO orders (id, user_id, amount, paid) VALUES (%s,%s,%s,0)",
             (order_id, uid, total)
         )
 
-        cur.execute(
-            "SELECT id, amount, paid FROM orders WHERE id=%s",
-            (order_id,)
-        )
-        bot.send_message(uid, f"🧪 DEBUG: Order recheck → {cur.fetchone()}")
-
         for i in items:
-            bot.send_message(uid, f"🧪 DEBUG: Inserting order_item → item_id={i['id']}")
             cur.execute(
                 """
                 INSERT INTO order_items (order_id, item_id, file_id, price)
@@ -2552,68 +2542,46 @@ def groupitem_deeplink_handler(msg):
                 (order_id, i["id"], i["file_id"], int(i["price"] or 0))
             )
 
-        cur.execute(
-            "SELECT COUNT(*) AS c FROM order_items WHERE order_id=%s",
-            (order_id,)
-        )
-        bot.send_message(uid, f"🧪 DEBUG: order_items count → {cur.fetchone()['c']}")
-
-    except Exception as e:
-        bot.send_message(uid, f"❌ DEBUG: ORDER INSERT FAILED\n{e}")
-        cur.close()
-        return
-
     # ========= PAYSTACK =========
-    bot.send_message(
-        uid,
-        f"""🧪 DEBUG: Calling Paystack
-Order: {order_id}
-Amount: ₦{total}
-User: {uid}
-Title: {display_title}
-"""
-    )
+    title_text = ", ".join(i["title"] for i in items)
+    display_title = f"{item_count} item(s)"
 
-    try:
-        pay_url = create_paystack_payment(uid, order_id, total, display_title)
-    except Exception as e:
-        bot.send_message(uid, f"❌ DEBUG: PAYSTACK EXCEPTION\n{e}")
-        cur.close()
-        return
+    pay_url = create_paystack_payment(
+        uid,
+        order_id,
+        total,
+        display_title
+    )
 
     if not pay_url:
         bot.send_message(
             uid,
-            "❌ DEBUG: Paystack returned EMPTY LINK\n"
-            "👉 DB OK\n👉 Items OK\n👉 Issue = Paystack / ENV / Secret key"
+            "❌ Payment service error.\nPlease try again later."
         )
         cur.close()
         return
 
-    bot.send_message(uid, f"🧪 DEBUG: Paystack URL → {pay_url}")
-
-    # ========= FINAL =========
+    # ========= FINAL MESSAGE =========
     kb = InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
     kb.add(InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{order_id}"))
 
     bot.send_message(
         uid,
-        f"""🧺 <b>New order</b>
+        f"""🧺 <b>Confirm Purchase</b>
 
-📩 Items: {len(items)}
+🎬 <b>You will buy:</b>
+{title_text}
+
+📦 Items: {item_count}
 💵 Total: ₦{total}
-
-🆔 Order ID:
-<code>{order_id}</code>
 """,
         parse_mode="HTML",
         reply_markup=kb
     )
 
-    elapsed = round(time.time() - start_ts, 2)
-    bot.send_message(uid, f"🧪 DEBUG: BUY FLOW COMPLETED ✅ ({elapsed}s)")
     cur.close()
+
 # ======================================================
 @bot.callback_query_handler(func=lambda c: c.data and c.data.startswith("buygroup:"))
 def buygroup_handler(c):

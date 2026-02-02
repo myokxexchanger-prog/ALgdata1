@@ -2477,7 +2477,6 @@ def buyd_deeplink_handler(msg):
     )
 
 
-# ========= GROUPITEM (ITEMS ONLY | DEEP LINK → DM) =========
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("/start groupitem_"))
 def groupitem_deeplink_handler(msg):
     try:
@@ -2494,15 +2493,17 @@ def groupitem_deeplink_handler(msg):
         return
 
     placeholders = ",".join(["%s"] * len(item_ids))
+    cur = conn.cursor()
 
-    items = conn.execute(
+    cur.execute(
         f"""
         SELECT id, title, price, file_id, group_key
         FROM items
         WHERE id IN ({placeholders})
         """,
         tuple(item_ids)
-    ).fetchall()
+    )
+    items = cur.fetchall()
 
     # 🗄️ DB EMPTY
     if not items:
@@ -2516,15 +2517,16 @@ def groupitem_deeplink_handler(msg):
 
     display_title = items[0]["title"]
 
-    # 🛑 OWNERSHIP CHECK
-    owned = conn.execute(
+    # 🛑 OWNERSHIP CHECK (BA A CANZA TSARI BA)
+    cur.execute(
         f"""
         SELECT 1 FROM user_movies
         WHERE user_id=%s AND item_id IN ({placeholders})
         LIMIT 1
         """,
         (uid, *[i["id"] for i in items])
-    ).fetchone()
+    )
+    owned = cur.fetchone()
 
     if owned:
         kb = InlineKeyboardMarkup()
@@ -2538,7 +2540,7 @@ def groupitem_deeplink_handler(msg):
         return
 
     # ===============================
-    # TOTAL (GROUP-AWARE)
+    # TOTAL (GROUP-AWARE) — AS IS
     # ===============================
     groups = {}
     for i in items:
@@ -2548,17 +2550,19 @@ def groupitem_deeplink_handler(msg):
 
     total = sum(groups.values())
 
-    old = conn.execute(
+    # 🛑 EXISTING UNPAID ORDER (BOOLEAN FIX)
+    cur.execute(
         f"""
         SELECT o.id, o.amount
         FROM orders o
         JOIN order_items oi ON oi.order_id = o.id
-        WHERE o.user_id=%s AND o.paid=0
+        WHERE o.user_id=%s AND o.paid=FALSE
           AND oi.item_id IN ({placeholders})
         LIMIT 1
         """,
         (uid, *[i["id"] for i in items])
-    ).fetchone()
+    )
+    old = cur.fetchone()
 
     if old:
         order_id = old["id"]
@@ -2566,16 +2570,16 @@ def groupitem_deeplink_handler(msg):
     else:
         order_id = str(uuid.uuid4())
 
-        conn.execute(
+        cur.execute(
             """
             INSERT INTO orders (id, user_id, amount, paid)
-            VALUES (%s, %s, %s, 0)
+            VALUES (%s, %s, %s, FALSE)
             """,
             (order_id, uid, total)
         )
 
         for i in items:
-            conn.execute(
+            cur.execute(
                 """
                 INSERT INTO order_items (order_id, item_id, file_id, price)
                 VALUES (%s, %s, %s, %s)
@@ -2587,9 +2591,8 @@ def groupitem_deeplink_handler(msg):
 
     pay_url = create_paystack_payment(uid, order_id, total, display_title)
 
-    # 💳 PAYMENT ERROR
     if not pay_url:
-        bot.send_message(uid, "❌ <b>PAYMENT ERROR</b>\nBa a samu Paystack link ba.", parse_mode="HTML")
+        bot.send_message(uid, "❌ <b>PAYMENT ERROR</b>", parse_mode="HTML")
         return
 
     kb = InlineKeyboardMarkup()
@@ -2609,6 +2612,8 @@ def groupitem_deeplink_handler(msg):
         parse_mode="HTML",
         reply_markup=kb
     )
+
+
 # ======================================================
 @bot.callback_query_handler(func=lambda c: c.data and c.data.startswith("buygroup:"))
 def buygroup_handler(c):

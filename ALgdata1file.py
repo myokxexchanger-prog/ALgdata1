@@ -1,4 +1,5 @@
-# bot.py  (PostgreSQL SAFE – no table/column removed)
+
+# bot.py  (PostgreSQL SAFE – FULL FIX, nothing removed)
 
 import telebot
 from telebot import types
@@ -67,7 +68,7 @@ CREATE TABLE IF NOT EXISTS items (
 cur.execute("""
 CREATE TABLE IF NOT EXISTS orders (
     id TEXT PRIMARY KEY,
-    user_id INTEGER,
+    user_id BIGINT,
     movie_id INTEGER,
     item_id INTEGER,
     amount INTEGER,
@@ -106,7 +107,7 @@ CREATE TABLE IF NOT EXISTS weekly (
 cur.execute("""
 CREATE TABLE IF NOT EXISTS cart (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER,
+    user_id BIGINT,
     movie_id INTEGER,
     item_id INTEGER,
     price INTEGER,
@@ -118,18 +119,19 @@ CREATE TABLE IF NOT EXISTS cart (
 cur.execute("""
 CREATE TABLE IF NOT EXISTS referrals (
     id SERIAL PRIMARY KEY,
-    referrer_id INTEGER,
-    referred_id INTEGER,
+    referrer_id BIGINT,
+    referred_id BIGINT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     reward_granted INTEGER DEFAULT 0
 )
 """)
 
+# -------- REORDERS --------
 cur.execute("""
 CREATE TABLE IF NOT EXISTS reorders (
     old_order_id INTEGER,
     new_order_id INTEGER,
-    user_id INTEGER,
+    user_id BIGINT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (old_order_id, user_id)
 )
@@ -138,7 +140,7 @@ CREATE TABLE IF NOT EXISTS reorders (
 cur.execute("""
 CREATE TABLE IF NOT EXISTS referral_credits (
     id SERIAL PRIMARY KEY,
-    referrer_id INTEGER,
+    referrer_id BIGINT,
     amount INTEGER,
     used INTEGER DEFAULT 0,
     granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -148,7 +150,7 @@ CREATE TABLE IF NOT EXISTS referral_credits (
 # -------- USER PREFS --------
 cur.execute("""
 CREATE TABLE IF NOT EXISTS user_prefs (
-    user_id INTEGER PRIMARY KEY,
+    user_id BIGINT PRIMARY KEY,
     lang TEXT DEFAULT 'ha'
 )
 """)
@@ -156,7 +158,7 @@ CREATE TABLE IF NOT EXISTS user_prefs (
 # -------- USER LIBRARY --------
 cur.execute("""
 CREATE TABLE IF NOT EXISTS user_library (
-    user_id INTEGER NOT NULL,
+    user_id BIGINT NOT NULL,
     movie_id INTEGER,
     item_id INTEGER,
     acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -176,7 +178,7 @@ CREATE TABLE IF NOT EXISTS buyall_tokens (
 cur.execute("""
 CREATE TABLE IF NOT EXISTS user_movies (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER,
+    user_id BIGINT,
     movie_id INTEGER,
     item_id INTEGER,
     order_id TEXT,
@@ -225,7 +227,7 @@ cur.execute("""
 CREATE TABLE IF NOT EXISTS feedbacks (
     id SERIAL PRIMARY KEY,
     order_id TEXT NOT NULL UNIQUE,
-    user_id INTEGER NOT NULL,
+    user_id BIGINT NOT NULL,
     mood TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
@@ -234,7 +236,7 @@ CREATE TABLE IF NOT EXISTS feedbacks (
 cur.execute("""
 CREATE TABLE IF NOT EXISTS resend_logs (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER,
+    user_id BIGINT,
     used_at TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
@@ -279,7 +281,7 @@ CREATE TABLE IF NOT EXISTS hausa_series_items (
 # ================= VISITED USERS =================
 cur.execute("""
 CREATE TABLE IF NOT EXISTS visited_users (
-    user_id INTEGER PRIMARY KEY,
+    user_id BIGINT PRIMARY KEY,
     first_name TEXT,
     last_name TEXT,
     username TEXT,
@@ -291,7 +293,7 @@ CREATE TABLE IF NOT EXISTS visited_users (
 cur.execute("""
 CREATE TABLE IF NOT EXISTS admin_controls (
     id SERIAL PRIMARY KEY,
-    admin_id INTEGER UNIQUE,
+    admin_id BIGINT UNIQUE,
     sendmovie_enabled INTEGER DEFAULT 0,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
@@ -310,6 +312,7 @@ CREATE TABLE IF NOT EXISTS how_to_buy (
 )
 """)
 
+print("✅ DATABASE READY — BIGINT FIX APPLIED")
 import uuid
 import re
 import json

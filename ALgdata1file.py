@@ -368,7 +368,7 @@ bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 app = Flask(__name__)
 
 
-# ========= PAYSTACK PAYMENT =========
+
 def create_paystack_payment(user_id, order_id, amount, title):
     if not PAYSTACK_SECRET or not PAYSTACK_REDIRECT_URL:
         print("❌ Paystack env missing")
@@ -381,7 +381,7 @@ def create_paystack_payment(user_id, order_id, amount, title):
 
     payload = {
         "reference": str(order_id),
-        "amount": int(amount) * 100,  # Kobo
+        "amount": int(amount) * 100,
         "currency": "NGN",
         "callback_url": PAYSTACK_REDIRECT_URL,
         "email": f"user{user_id}@telegram.com",
@@ -399,7 +399,6 @@ def create_paystack_payment(user_id, order_id, amount, title):
             headers=headers,
             timeout=30
         )
-
         data = r.json()
         if not data.get("status"):
             print("❌ Paystack error:", data)
@@ -410,7 +409,6 @@ def create_paystack_payment(user_id, order_id, amount, title):
     except Exception as e:
         print("❌ create_paystack_payment error:", e)
         return None
-
 
 # ========= HOME / KEEP ALIVE =========
 @app.route("/")
@@ -466,16 +464,10 @@ def send_feedback_prompt(user_id, order_id):
         reply_markup=kb
     )
 
-
-# ========= PAYSTACK WEBHOOK =========
 @app.route("/webhook", methods=["POST"])
 def paystack_webhook():
-
-    print("🔔 PAYSTACK WEBHOOK RECEIVED")
-
     signature = request.headers.get("x-paystack-signature")
     if not signature:
-        print("❌ Missing Paystack signature")
         return "Missing signature", 401
 
     computed = hmac.new(
@@ -485,24 +477,19 @@ def paystack_webhook():
     ).hexdigest()
 
     if signature != computed:
-        print("❌ Invalid Paystack signature")
         return "Invalid signature", 401
 
     payload = request.json or {}
-    event = payload.get("event")
-    data = payload.get("data", {})
-
-    if event != "charge.success":
+    if payload.get("event") != "charge.success":
         return "Ignored", 200
 
+    data = payload.get("data", {})
     order_id = data.get("reference")
     paid_amount = int(data.get("amount", 0) / 100)
-    currency = data.get("currency")
 
     cur = conn.cursor()
-
     cur.execute(
-        "SELECT user_id, amount, paid FROM orders WHERE id = %s",
+        "SELECT user_id, amount, paid FROM orders WHERE id=%s",
         (order_id,)
     )
     row = cur.fetchone()
@@ -513,40 +500,23 @@ def paystack_webhook():
 
     user_id, expected_amount, paid = row
 
-    if paid == 1:
+    if paid is True:
         cur.close()
         return "Already processed", 200
 
-    if paid_amount != expected_amount or currency != "NGN":
+    if paid_amount != expected_amount:
         cur.close()
         return "Wrong payment", 200
 
     cur.execute(
-        "SELECT COUNT(*) FROM order_items WHERE order_id = %s",
-        (order_id,)
-    )
-    items_count = cur.fetchone()[0]
-
-    if items_count == 0:
-        cur.close()
-        return "Empty order", 200
-
-    # ✅ CONFIRM PAYMENT
-    cur.execute(
-        "UPDATE orders SET paid = 1 WHERE id = %s",
+        "UPDATE orders SET paid=TRUE WHERE id=%s",
         (order_id,)
     )
     conn.commit()
     cur.close()
 
-    # ================= USER MESSAGE =================
     kb = InlineKeyboardMarkup()
-    kb.add(
-        InlineKeyboardButton(
-            "⬇️ DOWNLOAD NOW",
-            callback_data=f"deliver:{order_id}"
-        )
-    )
+    kb.add(InlineKeyboardButton("⬇️ DOWNLOAD NOW", callback_data=f"deliver:{order_id}"))
 
     bot.send_message(
         user_id,
@@ -554,31 +524,13 @@ def paystack_webhook():
 
 🗃 Order ID: <code>{order_id}</code>
 💳 Total Amount: ₦{paid_amount}
-
-Click download:""",
+""",
         parse_mode="HTML",
         reply_markup=kb
     )
 
-    # ================= PAYMENT NOTIFICATION =================
-    if PAYMENT_NOTIFY_GROUP:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        bot.send_message(
-            PAYMENT_NOTIFY_GROUP,
-            f"""✅ <b>NEW PAYMENT RECEIVED</b>
-
-👤 User ID: <code>{user_id}</code>
-📦 Items: {items_count}
-🧾 Order ID: <code>{order_id}</code>
-💰 Amount: ₦{paid_amount}
-⏰ Time: {now}""",
-            parse_mode="HTML"
-        )
-
-    print("✅ WEBHOOK PROCESSED:", order_id)
     return "OK", 200
-
+# 
 # ========= TELEGRAM WEBHOOK =========
 @app.route("/telegram", methods=["POST"])
 def telegram_webhook():
@@ -589,130 +541,62 @@ def telegram_webhook():
     return "OK", 200
 
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("deliver:"))
+#@bot.callback_query_handler(func=lambda c: c.data.startswith("deliver:"))
 def deliver_items(call):
     user_id = call.from_user.id
+    _, order_id = call.data.split(":", 1)
 
-    try:
-        _, order_id = call.data.split(":", 1)
-    except:
-        bot.answer_callback_query(call.id, "❌ Error from order infor..")
-        return
+    cur = conn.cursor()
 
-    # 1️⃣ DUBA ORDER
     cur.execute(
-        "SELECT paid FROM orders WHERE id = %s AND user_id = %s",
+        "SELECT paid FROM orders WHERE id=%s AND user_id=%s",
         (order_id, user_id)
     )
     order = cur.fetchone()
 
-    if not order:
-        bot.answer_callback_query(call.id, "❌ Order not found.")
+    if not order or order[0] is not True:
+        cur.close()
+        bot.answer_callback_query(call.id, "❌ Payment not confirmed.")
         return
 
-    if order[0] != 1:
-        bot.answer_callback_query(call.id, "❌ Your payment has not been confirmed.")
-        return
-
-    # 2️⃣ KAR A SAKE TURAWA (ORDER LEVEL)
     cur.execute(
-        "SELECT 1 FROM user_movies WHERE order_id = %s LIMIT 1",
+        "SELECT 1 FROM user_movies WHERE order_id=%s LIMIT 1",
         (order_id,)
     )
-    already = cur.fetchone()
-
-    if already:
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("🎥PAID MOVIES", callback_data="my_movies"))
-        bot.send_message(
-            user_id,
-            "ℹ🚫You have already received your movie.",
-            reply_markup=kb
-        )
+    if cur.fetchone():
+        cur.close()
+        bot.send_message(user_id, "ℹ🚫You have already received your movie.")
         return
 
-    bot.answer_callback_query(call.id, "📤 We sent your items🥳. Thanks😇")
-
-    # 3️⃣ DAUKO ITEMS
     cur.execute(
         """
-        SELECT 
-            oi.item_id,
-            oi.file_id,
-            i.title
+        SELECT oi.item_id, oi.file_id, i.title
         FROM order_items oi
         JOIN items i ON i.id = oi.item_id
-        WHERE oi.order_id = %s
+        WHERE oi.order_id=%s
         """,
         (order_id,)
     )
     items = cur.fetchall()
 
-    if not items:
-        bot.send_message(
-            user_id,
-            "❌ There is an issue with your order.\nPlease contact the admin for assistance."
-        )
-        return
-
     sent = 0
-
-    # 4️⃣ TURAWA
     for item_id, file_id, title in items:
-        if not file_id:
-            print("❌ NO FILE_ID:", item_id)
-            continue
-
-        cur.execute(
-            """
-            SELECT 1 FROM user_movies
-            WHERE user_id = %s AND item_id = %s
-            """,
-            (user_id, item_id)
-        )
-        exists = cur.fetchone()
-
-        if exists:
-            continue
-
-        sent_ok = False
-
         try:
             bot.send_video(user_id, file_id, caption=f"🎬 {title}")
-            sent_ok = True
         except:
-            try:
-                bot.send_document(user_id, file_id, caption=f"📁 {title}")
-                sent_ok = True
-            except Exception as e:
-                print("❌ SEND FAILED:", e)
+            bot.send_document(user_id, file_id, caption=f"📁 {title}")
 
-        if sent_ok:
-            cur.execute(
-                """
-                INSERT INTO user_movies (user_id, item_id, order_id)
-                VALUES (%s, %s, %s)
-                """,
-                (user_id, item_id, order_id)
-            )
-            sent += 1
-
-    # 5️⃣ FEEDBACK
-    if sent == 0:
-        bot.send_message(
-            user_id,
-            "❌ The movie could not be sent successfully.\nPlease contact the admin for assistance."
+        cur.execute(
+            "INSERT INTO user_movies (user_id, item_id, order_id) VALUES (%s,%s,%s)",
+            (user_id, item_id, order_id)
         )
-        return
+        sent += 1
 
-    bot.send_message(
-        user_id,
-        f"✅ We sent your items ({sent}).\nThank you, Our value customer😇🤗"
-    )
+    conn.commit()
+    cur.close()
 
-    send_feedback_prompt(user_id, order_id)
-
-# =========================================================
+    bot.send_message(user_id, f"✅ We sent your items ({sent}).")
+    send_feedback_prompt(user_id, order_id) =========================================================
 # ========= HARD START HOWTO (DEEPLINK LOCK) ===============
 # =========================================================
 @bot.message_handler(
@@ -2505,19 +2389,20 @@ def groupitem_deeplink_handler(msg):
     )
     items = cur.fetchall()
 
-    # 🗄️ DB EMPTY
     if not items:
         bot.send_message(uid, "📦 <b>DB EMPTY</b>\nItems ba su cikin database.", parse_mode="HTML")
+        cur.close()
         return
 
     items = [i for i in items if i["file_id"]]
     if not items:
         bot.send_message(uid, "❌ No downloadable items available.")
+        cur.close()
         return
 
     display_title = items[0]["title"]
 
-    # 🛑 OWNERSHIP CHECK (BA A CANZA TSARI BA)
+    # 🛑 OWNERSHIP CHECK (BA A CANZA BA)
     cur.execute(
         f"""
         SELECT 1 FROM user_movies
@@ -2537,6 +2422,7 @@ def groupitem_deeplink_handler(msg):
             parse_mode="HTML",
             reply_markup=kb
         )
+        cur.close()
         return
 
     # ===============================
@@ -2550,7 +2436,7 @@ def groupitem_deeplink_handler(msg):
 
     total = sum(groups.values())
 
-    # 🛑 EXISTING UNPAID ORDER (BOOLEAN FIX)
+    # 🛑 EXISTING UNPAID ORDER (BOOLEAN FIXED)
     cur.execute(
         f"""
         SELECT o.id, o.amount
@@ -2589,6 +2475,8 @@ def groupitem_deeplink_handler(msg):
 
         conn.commit()
 
+    cur.close()
+
     pay_url = create_paystack_payment(uid, order_id, total, display_title)
 
     if not pay_url:
@@ -2612,8 +2500,6 @@ def groupitem_deeplink_handler(msg):
         parse_mode="HTML",
         reply_markup=kb
     )
-
-
 # ======================================================
 @bot.callback_query_handler(func=lambda c: c.data and c.data.startswith("buygroup:"))
 def buygroup_handler(c):

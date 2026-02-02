@@ -1,19 +1,26 @@
-# bot.py  (Merged final with language persistence fixes - bug fixed + Fulani added)
+# bot.py  (PostgreSQL SAFE – no table/column removed)
+
 import telebot
 from telebot import types
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 import psycopg2
 import time
-# ====== DATABASE CONNECTION ======
 import os
 
+# ======================
+# DATABASE CONNECTION
+# ======================
 DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not set")
 
 conn = psycopg2.connect(DATABASE_URL)
 conn.autocommit = True
 cur = conn.cursor()
 
-# small globals
+# ======================
+# GLOBAL STATES
+# ======================
 admin_states = {}
 last_menu_msg = {}
 last_category_msg = {}
@@ -22,6 +29,7 @@ allfilms_sessions = {}
 cart_sessions = {}
 series_sessions = {}
 user_states = {}
+
 # =========================
 # DATABASE TABLES (SAFE)
 # =========================
@@ -40,7 +48,7 @@ CREATE TABLE IF NOT EXISTS movies (
 )
 """)
 
-# -------- ITEMS (MOVIES) --------
+# -------- ITEMS --------
 cur.execute("""
 CREATE TABLE IF NOT EXISTS items (
     id SERIAL PRIMARY KEY,
@@ -164,7 +172,7 @@ CREATE TABLE IF NOT EXISTS buyall_tokens (
 )
 """)
 
-# -------- USER MOVIES (RESEND) --------
+# -------- USER MOVIES --------
 cur.execute("""
 CREATE TABLE IF NOT EXISTS user_movies (
     id SERIAL PRIMARY KEY,
@@ -289,7 +297,7 @@ CREATE TABLE IF NOT EXISTS admin_controls (
 )
 """)
 
-# ================= HOW TO BUY STORAGE =================
+# ================= HOW TO BUY =================
 cur.execute("""
 CREATE TABLE IF NOT EXISTS how_to_buy (
     id SERIAL PRIMARY KEY,
@@ -2400,11 +2408,18 @@ def buyd_deeplink_handler(msg):
         reply_markup=kb
     )
 
+from psycopg2.extras import RealDictCursor
+import uuid
+import time
+
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("/start groupitem_"))
 def groupitem_deeplink_handler(msg):
     uid = msg.from_user.id
+    start_ts = time.time()
+
     bot.send_message(uid, "🧪 DEBUG: Buy handler triggered")
 
+    # ========= PARSE IDS =========
     try:
         raw = msg.text.split("groupitem_", 1)[1]
         sep = "_" if "_" in raw else ","
@@ -2415,13 +2430,22 @@ def groupitem_deeplink_handler(msg):
         return
 
     if not item_ids:
-        bot.send_message(uid, "❌ DEBUG: item_ids is empty")
+        bot.send_message(uid, "❌ DEBUG: item_ids EMPTY → handler stops")
         return
 
     placeholders = ",".join(["%s"] * len(item_ids))
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
 
-    # ================= ITEMS =================
+    # ========= DB PING =========
+    try:
+        cur.execute("SELECT 1")
+        bot.send_message(uid, "🧪 DEBUG: DB connection OK")
+    except Exception as e:
+        bot.send_message(uid, f"❌ DEBUG: DB connection FAILED\n{e}")
+        cur.close()
+        return
+
+    # ========= FETCH ITEMS =========
     try:
         cur.execute(
             f"""
@@ -2433,27 +2457,35 @@ def groupitem_deeplink_handler(msg):
         )
         items = cur.fetchall()
         bot.send_message(uid, f"🧪 DEBUG: Items fetched → {len(items)}")
+        bot.send_message(uid, f"🧪 DEBUG: Raw items → {items}")
     except Exception as e:
         bot.send_message(uid, f"❌ DEBUG: DB error fetching items\n{e}")
         cur.close()
         return
 
     if not items:
-        bot.send_message(uid, "❌ DEBUG: No items found in DB")
+        bot.send_message(uid, "❌ DEBUG: NO ITEMS FOUND IN DB")
         cur.close()
         return
 
-    items = [i for i in items if i["file_id"]]
-    bot.send_message(uid, f"🧪 DEBUG: Items with file_id → {len(items)}")
+    # ========= FILE_ID CHECK =========
+    for i in items:
+        bot.send_message(
+            uid,
+            f"🧪 DEBUG ITEM → id={i['id']} | price={i['price']} | file_id={'YES' if i['file_id'] else 'NO'} | group={i['group_key']}"
+        )
+
+    items = [i for i in items if i.get("file_id")]
+    bot.send_message(uid, f"🧪 DEBUG: Items WITH file_id → {len(items)}")
 
     if not items:
-        bot.send_message(uid, "❌ DEBUG: Items exist but file_id missing")
+        bot.send_message(uid, "❌ DEBUG: All items missing file_id → STOP")
         cur.close()
         return
 
-    display_title = items[0]["title"]
+    display_title = f"{len(items)} item(s)"
 
-    # ================= OWNERSHIP =================
+    # ========= OWNERSHIP =========
     try:
         cur.execute(
             f"""
@@ -2464,9 +2496,9 @@ def groupitem_deeplink_handler(msg):
             (uid, *[i["id"] for i in items])
         )
         owned = cur.fetchone()
-        bot.send_message(uid, f"🧪 DEBUG: Ownership check → {bool(owned)}")
+        bot.send_message(uid, f"🧪 DEBUG: Ownership → {bool(owned)}")
     except Exception as e:
-        bot.send_message(uid, f"❌ DEBUG: Ownership query failed\n{e}")
+        bot.send_message(uid, f"❌ DEBUG: Ownership query FAILED\n{e}")
         cur.close()
         return
 
@@ -2475,7 +2507,7 @@ def groupitem_deeplink_handler(msg):
         cur.close()
         return
 
-    # ================= TOTAL =================
+    # ========= TOTAL =========
     groups = {}
     for i in items:
         key = i["group_key"] or f"single_{i['id']}"
@@ -2483,82 +2515,81 @@ def groupitem_deeplink_handler(msg):
             groups[key] = int(i["price"] or 0)
 
     total = sum(groups.values())
-    bot.send_message(uid, f"🧪 DEBUG: Calculated total → ₦{total}")
+    bot.send_message(uid, f"🧪 DEBUG: Groups → {groups}")
+    bot.send_message(uid, f"🧪 DEBUG: TOTAL → ₦{total}")
 
-    # ================= EXISTING ORDER =================
-    try:
-        cur.execute(
-            f"""
-            SELECT o.id, o.amount
-            FROM orders o
-            JOIN order_items oi ON oi.order_id = o.id
-            WHERE o.user_id=%s AND o.paid=0
-              AND oi.item_id IN ({placeholders})
-            LIMIT 1
-            """,
-            (uid, *[i["id"] for i in items])
-        )
-        old = cur.fetchone()
-        bot.send_message(uid, f"🧪 DEBUG: Existing unpaid order → {old}")
-    except Exception as e:
-        bot.send_message(uid, f"❌ DEBUG: Order lookup failed\n{e}")
+    if total <= 0:
+        bot.send_message(uid, "❌ DEBUG: TOTAL IS ZERO → Paystack will fail")
         cur.close()
         return
 
-    if old:
-        order_id = old["id"]
-        total = old["amount"]
-        bot.send_message(uid, f"🧪 DEBUG: Reusing order → {order_id}")
-    else:
-        order_id = str(uuid.uuid4())
-        bot.send_message(uid, f"🧪 DEBUG: Creating new order → {order_id}")
+    # ========= CREATE ORDER =========
+    order_id = str(uuid.uuid4())
+    bot.send_message(uid, f"🧪 DEBUG: Creating order → {order_id}")
 
-        try:
+    try:
+        cur.execute(
+            "INSERT INTO orders (id, user_id, amount, paid) VALUES (%s,%s,%s,0)",
+            (order_id, uid, total)
+        )
+
+        cur.execute(
+            "SELECT id, amount, paid FROM orders WHERE id=%s",
+            (order_id,)
+        )
+        bot.send_message(uid, f"🧪 DEBUG: Order recheck → {cur.fetchone()}")
+
+        for i in items:
+            bot.send_message(uid, f"🧪 DEBUG: Inserting order_item → item_id={i['id']}")
             cur.execute(
                 """
-                INSERT INTO orders (id, user_id, amount, paid)
-                VALUES (%s, %s, %s, 0)
+                INSERT INTO order_items (order_id, item_id, file_id, price)
+                VALUES (%s,%s,%s,%s)
                 """,
-                (order_id, uid, total)
+                (order_id, i["id"], i["file_id"], int(i["price"] or 0))
             )
 
-            for i in items:
-                cur.execute(
-                    """
-                    INSERT INTO order_items (order_id, item_id, file_id, price)
-                    VALUES (%s, %s, %s, %s)
-                    """,
-                    (order_id, i["id"], i["file_id"], int(i["price"] or 0))
-                )
+        cur.execute(
+            "SELECT COUNT(*) AS c FROM order_items WHERE order_id=%s",
+            (order_id,)
+        )
+        bot.send_message(uid, f"🧪 DEBUG: order_items count → {cur.fetchone()['c']}")
 
-            conn.commit()
-            bot.send_message(uid, "🧪 DEBUG: Order + order_items inserted")
-        except Exception as e:
-            conn.rollback()
-            bot.send_message(uid, f"❌ DEBUG: Failed inserting order\n{e}")
-            cur.close()
-            return
+    except Exception as e:
+        bot.send_message(uid, f"❌ DEBUG: ORDER INSERT FAILED\n{e}")
+        cur.close()
+        return
 
-    # ================= PAYSTACK =================
-    bot.send_message(uid, "🧪 DEBUG: Initializing Paystack payment…")
-    pay_url = create_paystack_payment(uid, order_id, total, display_title)
+    # ========= PAYSTACK =========
+    bot.send_message(
+        uid,
+        f"""🧪 DEBUG: Calling Paystack
+Order: {order_id}
+Amount: ₦{total}
+User: {uid}
+Title: {display_title}
+"""
+    )
+
+    try:
+        pay_url = create_paystack_payment(uid, order_id, total, display_title)
+    except Exception as e:
+        bot.send_message(uid, f"❌ DEBUG: PAYSTACK EXCEPTION\n{e}")
+        cur.close()
+        return
 
     if not pay_url:
         bot.send_message(
             uid,
-            f"""❌ DEBUG: Paystack returned NO LINK
-
-Order: {order_id}
-Amount: ₦{total}
-
-👉 Problem is Paystack or ENV, NOT DB
-"""
+            "❌ DEBUG: Paystack returned EMPTY LINK\n"
+            "👉 DB OK\n👉 Items OK\n👉 Issue = Paystack / ENV / Secret key"
         )
         cur.close()
         return
 
-    bot.send_message(uid, f"🧪 DEBUG: Paystack link received ✅")
+    bot.send_message(uid, f"🧪 DEBUG: Paystack URL → {pay_url}")
 
+    # ========= FINAL =========
     kb = InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
     kb.add(InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{order_id}"))
@@ -2577,6 +2608,8 @@ Amount: ₦{total}
         reply_markup=kb
     )
 
+    elapsed = round(time.time() - start_ts, 2)
+    bot.send_message(uid, f"🧪 DEBUG: BUY FLOW COMPLETED ✅ ({elapsed}s)")
     cur.close()
 # ======================================================
 @bot.callback_query_handler(func=lambda c: c.data and c.data.startswith("buygroup:"))

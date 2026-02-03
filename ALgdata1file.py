@@ -3103,27 +3103,18 @@ def all_callbacks(c):
 
 
     # =====================
-    # ADD TO CART (POSTGRES SAFE + DEBUG)
+    # ADD TO CART (SAFE)
     # =====================
     if data.startswith("addcartdm:"):
-        debug = []
-        debug.append("=== ADD TO CART DEBUG START ===")
-        debug.append(f"USER_ID={uid}")
-        debug.append(f"CALLBACK_DATA={data}")
-
         try:
             raw = data.split(":", 1)[1]
             item_ids = [i for i in raw.split("_") if i.isdigit()]
-            debug.append(f"PARSED_IDS={item_ids}")
-        except Exception as e:
-            debug.append("PARSE ERROR")
-            debug.append(str(e))
-            bot.send_message(uid, "<pre>" + "\n".join(debug) + "</pre>", parse_mode="HTML")
+        except:
+            bot.answer_callback_query(c.id, "❌ Invalid item")
             return
 
         if not item_ids:
-            debug.append("NO VALID IDS")
-            bot.send_message(uid, "<pre>" + "\n".join(debug) + "</pre>", parse_mode="HTML")
+            bot.answer_callback_query(c.id, "❌ Invalid item")
             return
 
         added = 0
@@ -3133,74 +3124,57 @@ def all_callbacks(c):
             cur = conn.cursor()
 
             for item_id in item_ids:
-                debug.append(f"\n▶ ITEM_ID={item_id}")
-
-                # item exists?
+                # 🔎 check item exists
                 cur.execute(
                     "SELECT id FROM items WHERE id=%s",
                     (item_id,)
                 )
-                item = cur.fetchone()
-                debug.append(f"ITEM_EXISTS={bool(item)}")
-
-                if not item:
+                if not cur.fetchone():
                     skipped += 1
                     continue
 
-                # already in cart?
+                # 🔐 already in cart?
                 cur.execute(
                     "SELECT 1 FROM cart WHERE user_id=%s AND item_id=%s",
                     (uid, item_id)
                 )
-                exists = cur.fetchone()
-                debug.append(f"IN_CART={bool(exists)}")
-
-                if exists:
+                if cur.fetchone():
                     skipped += 1
                     continue
 
-                # insert
+                # ➕ insert
                 cur.execute(
                     "INSERT INTO cart (user_id, item_id) VALUES (%s, %s)",
                     (uid, item_id)
                 )
-                debug.append("INSERT_OK")
                 added += 1
 
             conn.commit()
-            debug.append("COMMIT_OK")
 
-        except Exception as e:
+        except Exception:
             conn.rollback()
-            debug.append("DB ERROR")
-            debug.append(str(e))
-
-            bot.send_message(
-                uid,
-                "<b>ADD TO CART ERROR</b>\n<pre>" +
-                "\n".join(debug) +
-                "</pre>",
-                parse_mode="HTML"
-            )
+            bot.answer_callback_query(c.id, "❌ Add to cart failed")
             return
 
-        debug.append("\n=== RESULT ===")
-        debug.append(f"ADDED={added}")
-        debug.append(f"SKIPPED={skipped}")
+        # ===== USER FEEDBACK =====
+        if added and skipped:
+            bot.answer_callback_query(
+                c.id,
+                f"✅ Added {added} | ⚠️ Already added {skipped}"
+            )
+        elif added:
+            bot.answer_callback_query(
+                c.id,
+                "✅ Item added to cart"
+            )
+        else:
+            bot.answer_callback_query(
+                c.id,
+                "⚠️ You've already added this item"
+            )
 
-        bot.send_message(
-            uid,
-            "<b>ADD TO CART DEBUG (SUCCESS)</b>\n<pre>" +
-            "\n".join(debug) +
-            "</pre>",
-            parse_mode="HTML"
-        )
-
-        bot.answer_callback_query(
-            c.id,
-            f"✅ Added {added} | ⚠️ Skipped {skipped}"
-        )
         return
+  
 
     # =====================
     # VIEW CART

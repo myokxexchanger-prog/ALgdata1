@@ -2875,12 +2875,12 @@ def pay_all_unpaid(call):
 
 👤 <b>Your name is:</b> {user_name}
 
-🎬 <b>Items:</b>
+🎬 <b> Films:</b>
 {", ".join(unique_titles)}
 
-📦 <b>Total Items:</b> {len(item_ids)}
-🗂 <b>Groups:</b> {len(groups)}
-💵 <b>Total:</b> ₦{total_amount}
+📦 <b>Films:</b> {len(item_ids)}
+🗂 <b>G-orders:</b> {len(groups)}
+💵 <b> Total amount:</b> ₦{total_amount}
 
 🆔 <b>Order ID:</b>
 <code>{order_id}</code>

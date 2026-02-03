@@ -2292,6 +2292,7 @@ def start_handler(msg):
     bot.send_message(msg.chat.id, "Welcome!")
 
 # ========= BUYD (ITEM ONLY | DEEP LINK → DM) =========
+
 from psycopg2.extras import RealDictCursor
 import uuid
 import time
@@ -2299,22 +2300,16 @@ import time
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("/start groupitem_"))
 def groupitem_deeplink_handler(msg):
     uid = msg.from_user.id
-    start_ts = time.time()
-
-    bot.send_message(uid, "🧪 DEBUG: handler STARTED")
 
     # ========= PARSE ITEM IDS =========
     try:
         raw = msg.text.split("groupitem_", 1)[1]
         sep = "_" if "_" in raw else ","
         item_ids = [int(x) for x in raw.split(sep) if x.strip().isdigit()]
-        bot.send_message(uid, f"🧪 DEBUG: parsed item_ids = {item_ids}")
-    except Exception as e:
-        bot.send_message(uid, f"❌ DEBUG: parse FAILED\n{e}")
+    except Exception:
         return
 
     if not item_ids:
-        bot.send_message(uid, "❌ DEBUG: item_ids EMPTY")
         return
 
     cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -2331,26 +2326,21 @@ def groupitem_deeplink_handler(msg):
             tuple(item_ids)
         )
         items = cur.fetchall()
-        bot.send_message(uid, f"🧪 DEBUG: items fetched = {len(items)}")
-    except Exception as e:
-        bot.send_message(uid, f"❌ DEBUG: fetch items FAILED\n{e}")
+    except Exception:
         cur.close()
         return
 
     if not items:
-        bot.send_message(uid, "❌ DEBUG: no items found")
         cur.close()
         return
 
     # ========= FILE_ID REQUIRED =========
     items = [i for i in items if i.get("file_id")]
     if not items:
-        bot.send_message(uid, "❌ DEBUG: items missing file_id")
         cur.close()
         return
 
     item_ids_clean = [i["id"] for i in items]
-    bot.send_message(uid, f"🧪 DEBUG: valid item_ids = {item_ids_clean}")
 
     # ========= OWNERSHIP CHECK =========
     try:
@@ -2364,9 +2354,7 @@ def groupitem_deeplink_handler(msg):
             (uid, *item_ids_clean)
         )
         owned = cur.fetchone()
-        bot.send_message(uid, f"🧪 DEBUG: ownership result = {owned}")
-    except Exception as e:
-        bot.send_message(uid, f"❌ DEBUG: ownership FAILED\n{e}")
+    except Exception:
         cur.close()
         return
 
@@ -2394,7 +2382,6 @@ def groupitem_deeplink_handler(msg):
     item_count = len(items)
 
     if total <= 0:
-        bot.send_message(uid, "❌ DEBUG: invalid total")
         cur.close()
         return
 
@@ -2415,8 +2402,7 @@ def groupitem_deeplink_handler(msg):
             (uid, *item_ids_clean, len(item_ids_clean))
         )
         row = cur.fetchone()
-    except Exception as e:
-        bot.send_message(uid, f"❌ DEBUG: unpaid order check FAILED\n{e}")
+    except Exception:
         cur.close()
         return
 
@@ -2437,8 +2423,7 @@ def groupitem_deeplink_handler(msg):
                     """,
                     (order_id, i["id"], i["file_id"], int(i["price"] or 0))
                 )
-        except Exception as e:
-            bot.send_message(uid, f"❌ DEBUG: order create FAILED\n{e}")
+        except Exception:
             cur.close()
             return
 
@@ -2447,7 +2432,6 @@ def groupitem_deeplink_handler(msg):
     pay_url = create_paystack_payment(uid, order_id, total, display_title)
 
     if not pay_url:
-        bot.send_message(uid, "❌ DEBUG: Paystack failed")
         cur.close()
         return
 
@@ -2479,8 +2463,8 @@ def groupitem_deeplink_handler(msg):
         reply_markup=kb
     )
 
-    bot.send_message(uid, f"🧪 DEBUG: FLOW END ({round(time.time()-start_ts,2)}s)")
     cur.close()
+
 
 # ================= ADMIN MANUAL SUPPORT SYSTEM ===========
 

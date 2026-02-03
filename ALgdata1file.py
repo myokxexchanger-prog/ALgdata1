@@ -2022,12 +2022,14 @@ def show_cart(chat_id, user_id):
 @bot.callback_query_handler(func=lambda c: c.data == "weekly_films")
 def send_weekly_films(call):
     return send_weekly_list(call.message)
-# ---------- My Orders (UNPAID with per-item REMOVE) ----------
+
+# ---------- My Orders (UNPAID with per-item REMOVE | FIXED) ----------
 ORDERS_PER_PAGE = 5
 
 def build_unpaid_orders_view(uid, page):
     offset = page * ORDERS_PER_PAGE
 
+    # ===== COUNT ORDERS =====
     cur.execute(
         "SELECT COUNT(*) FROM orders WHERE user_id=%s AND paid=0",
         (uid,)
@@ -2042,40 +2044,29 @@ def build_unpaid_orders_view(uid, page):
                 url=f"https://t.me/{CHANNEL.lstrip('@')}"
             )
         )
-        return "📩<b>There are no unpaid orders. \n\n Go to our channel to buy Films</b>", kb
+        return (
+            "📩<b>There are no unpaid orders.\n\nGo to our channel to buy Films</b>",
+            kb
+        )
 
-    # ===== TOTAL AMOUNT =====
+    # ===== TOTAL BALANCE (SOURCE OF TRUTH) =====
     cur.execute(
         """
-        SELECT COALESCE(SUM(
-            CASE
-                WHEN gk_count = 1 THEN base_price
-                ELSE amount
-            END
-        ),0)
-        FROM (
-            SELECT
-                o.id,
-                COUNT(DISTINCT i.group_key) AS gk_count,
-                SUM(oi.price) AS amount,
-                MIN(oi.price) AS base_price
-            FROM orders o
-            JOIN order_items oi ON oi.order_id = o.id
-            LEFT JOIN items i ON i.id = oi.item_id
-            WHERE o.user_id=%s AND o.paid=0
-            GROUP BY o.id
-        ) x
+        SELECT COALESCE(SUM(amount), 0)
+        FROM orders
+        WHERE user_id=%s AND paid=0
         """,
         (uid,)
     )
     total_amount = cur.fetchone()[0]
 
+    # ===== FETCH ORDERS =====
     cur.execute(
         """
         SELECT
             o.id,
             COUNT(oi.item_id) AS items_count,
-            SUM(oi.price) AS amount,
+            o.amount AS amount,
             MAX(i.title) AS title,
             COUNT(DISTINCT i.group_key) AS gk_count,
             MIN(oi.price) AS base_price,
@@ -2096,6 +2087,8 @@ def build_unpaid_orders_view(uid, page):
     kb = InlineKeyboardMarkup()
 
     for oid, count, amount, title, gk_count, base_price, group_key in rows:
+
+        # ===== DISPLAY LOGIC (GROUP SAFE) =====
         if count > 1 and gk_count == 1:
             name = f"{title} (EP {count})"
             show_amount = base_price
@@ -2111,13 +2104,14 @@ def build_unpaid_orders_view(uid, page):
 
         kb.row(
             InlineKeyboardButton(
-                f"❌ Remove{short}",
+                f"❌ Remove {short}",
                 callback_data=f"remove_unpaid:{oid}"
             )
         )
 
     text += f"\n<b>Total balance:</b> ₦{int(total_amount)}"
 
+    # ===== NAVIGATION =====
     nav = []
     if page > 0:
         nav.append(
@@ -2136,6 +2130,7 @@ def build_unpaid_orders_view(uid, page):
     if nav:
         kb.row(*nav)
 
+    # ===== ACTIONS =====
     kb.row(
         InlineKeyboardButton("💳 Pay all", callback_data="payall:"),
         InlineKeyboardButton("📩 Paid orders", callback_data="paid_orders")

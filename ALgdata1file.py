@@ -378,21 +378,15 @@ bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 # ========= FLASK =========
 app = Flask(__name__)
 
-
-
 def create_paystack_payment(user_id, order_id, amount, title):
-    print("🧪 PAYSTACK DEBUG: function called")
-    print("🧪 user_id =", user_id)
-    print("🧪 order_id =", order_id)
-    print("🧪 amount =", amount)
-    print("🧪 title =", title)
+    bot.send_message(user_id, "🧪 PAYSTACK DEBUG: function called")
 
     if not PAYSTACK_SECRET:
-        print("❌ PAYSTACK DEBUG: PAYSTACK_SECRET missing")
+        bot.send_message(user_id, "❌ PAYSTACK DEBUG: PAYSTACK_SECRET missing")
         return None
 
     if not PAYSTACK_REDIRECT_URL:
-        print("❌ PAYSTACK DEBUG: PAYSTACK_REDIRECT_URL missing")
+        bot.send_message(user_id, "❌ PAYSTACK DEBUG: PAYSTACK_REDIRECT_URL missing")
         return None
 
     headers = {
@@ -413,9 +407,7 @@ def create_paystack_payment(user_id, order_id, amount, title):
         }
     }
 
-    print("🧪 PAYSTACK DEBUG: payload =", payload)
-    print("🧪 PAYSTACK DEBUG: headers =", headers)
-    print("🧪 PAYSTACK DEBUG: endpoint =", f"{PAYSTACK_BASE}/transaction/initialize")
+    bot.send_message(user_id, f"🧪 PAYSTACK DEBUG: payload = {payload}")
 
     try:
         r = requests.post(
@@ -425,29 +417,29 @@ def create_paystack_payment(user_id, order_id, amount, title):
             timeout=30
         )
 
-        print("🧪 PAYSTACK DEBUG: HTTP status =", r.status_code)
-        print("🧪 PAYSTACK DEBUG: raw response =", r.text)
+        bot.send_message(user_id, f"🧪 PAYSTACK DEBUG: status_code = {r.status_code}")
+        bot.send_message(user_id, f"🧪 PAYSTACK DEBUG: response = {r.text}")
 
         data = r.json()
-        print("🧪 PAYSTACK DEBUG: parsed json =", data)
 
         if not data.get("status"):
-            print("❌ PAYSTACK DEBUG: status FALSE")
+            bot.send_message(user_id, f"❌ PAYSTACK DEBUG: status false → {data}")
             return None
 
         auth_url = data.get("data", {}).get("authorization_url")
-        print("🧪 PAYSTACK DEBUG: authorization_url =", auth_url)
 
         if not auth_url:
-            print("❌ PAYSTACK DEBUG: authorization_url missing")
+            bot.send_message(user_id, "❌ PAYSTACK DEBUG: authorization_url missing")
             return None
 
-        print("✅ PAYSTACK DEBUG: SUCCESS")
+        bot.send_message(user_id, "✅ PAYSTACK DEBUG: success")
         return auth_url
 
     except Exception as e:
-        print("❌ PAYSTACK DEBUG: EXCEPTION =", repr(e))
+        bot.send_message(user_id, f"❌ PAYSTACK DEBUG: exception → {repr(e)}")
         return None
+
+
 # ========= HOME / KEEP ALIVE =========
 @app.route("/")
 def home():

@@ -3124,156 +3124,180 @@ def all_callbacks(c):
     data = c.data
 
 
-
     # =====================
-    # CHECKOUT (DEBUG MODE)
+    # CHECKOUT
     # =====================
     if data == "checkout":
-        debug = []
-        debug.append("=== CHECKOUT DEBUG START ===")
-        debug.append(f"USER_ID={uid}")
-        debug.append(f"CALLBACK_DATA={data}")
 
-        # ---------------------
-        # GET CART
-        # ---------------------
-        try:
-            rows = get_cart(uid)
-            debug.append(f"CART_ROWS_COUNT={len(rows)}")
-            debug.append(f"CART_ROWS={rows}")
-        except Exception as e:
-            debug.append("❌ GET_CART ERROR")
-            debug.append(str(e))
-            bot.send_message(uid, "<pre>" + "\n".join(debug) + "</pre>", parse_mode="HTML")
-            return
+        print("\n=== CHECKOUT DEBUG START ===")
+        print("USER_ID =", uid)
+        print("CALLBACK_DATA =", data)
+
+        rows = get_cart(uid)
+
+        print("CART_ROWS_COUNT =", len(rows))
+        print("CART_ROWS =", rows)
 
         if not rows:
-            debug.append("❌ CART EMPTY")
-            bot.send_message(uid, "<pre>" + "\n".join(debug) + "</pre>", parse_mode="HTML")
+            print("❌ CART EMPTY")
             bot.answer_callback_query(c.id, "❌ Cart empty")
             return
 
         order_id = str(uuid.uuid4())
+        print("ORDER_ID =", order_id)
+
         total = 0
         items = []
+        owned_count = 0
 
-        debug.append(f"ORDER_ID={order_id}")
+        user_name = c.from_user.full_name or "User"
+        print("USER_NAME =", user_name)
 
-        # ---------------------
-        # PROCESS ITEMS
-        # ---------------------
-        for r in rows:
+        for idx, row in enumerate(rows, start=1):
+            print(f"\n-- ROW {idx} RAW =", row)
+
             try:
-                item_id, title, price, file_id, group_key, owner_id = r
+                item_id, title, price, file_id, group_key = row
             except Exception as e:
-                debug.append("❌ ROW UNPACK ERROR")
-                debug.append(str(r))
-                debug.append(str(e))
+                print("❌ ROW UNPACK ERROR:", e)
                 continue
 
-            debug.append(
-                f"\nITEM id={item_id} price={price} owner={owner_id} file={bool(file_id)}"
-            )
+            print("ITEM_ID =", item_id)
+            print("TITLE =", title)
+            print("PRICE =", price)
+            print("FILE_ID =", bool(file_id))
 
-            # OWNER CHECK
-            if str(owner_id) == uid:
-                debug.append("⛔ SKIP: OWNER ITEM")
+            # 🔎 CHECK OWNERSHIP
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT 1 FROM user_movies WHERE user_id=%s AND item_id=%s LIMIT 1",
+                    (uid, item_id)
+                )
+                owned = cur.fetchone()
+                cur.close()
+            except Exception as e:
+                print("❌ OWNERSHIP CHECK ERROR:", e)
+                owned = None
+
+            print("ALREADY_OWNED =", bool(owned))
+
+            if owned:
+                owned_count += 1
                 continue
 
-            if not file_id:
-                debug.append("⛔ SKIP: NO FILE_ID")
-                continue
-
-            if not price or int(price) <= 0:
-                debug.append("⛔ SKIP: INVALID PRICE")
+            if not price or not file_id:
+                print("⚠️ SKIPPED (NO PRICE OR FILE)")
                 continue
 
             total += int(price)
             items.append((item_id, file_id, price))
-            debug.append("✅ ITEM ACCEPTED")
 
-        debug.append(f"\nVALID_ITEMS_COUNT={len(items)}")
-        debug.append(f"TOTAL={total}")
+            print("✅ ADDED TO PAY ITEMS")
 
-        if not items or total <= 0:
-            debug.append("❌ NOTHING PAYABLE")
-            bot.send_message(uid, "<pre>" + "\n".join(debug) + "</pre>", parse_mode="HTML")
-            bot.answer_callback_query(
-                c.id,
-                "⚠️ Ba zaka iya siyan naka content ba"
+        print("\nVALID_ITEMS_COUNT =", len(items))
+        print("OWNED_ITEMS_COUNT =", owned_count)
+        print("TOTAL_AMOUNT =", total)
+
+        # =====================
+        # ALL ITEMS ALREADY OWNED
+        # =====================
+        if owned_count > 0 and not items:
+            print("ℹ️ ALL ITEMS ALREADY OWNED")
+
+            kb = InlineKeyboardMarkup()
+            kb.add(
+                InlineKeyboardButton(
+                    "📽 Paid Movies",
+                    callback_data="my_movies"
+                )
             )
+
+            bot.send_message(
+                uid,
+                "✅ <b>You've already bought these movies.</b>\n\n"
+                "📽 Check Paid Movies\n"
+                "You can download again anytime.",
+                parse_mode="HTML",
+                reply_markup=kb
+            )
+
+            bot.answer_callback_query(c.id)
+            print("=== CHECKOUT END (OWNED) ===")
             return
 
-        # ---------------------
-        # INSERT ORDER
-        # ---------------------
+        # =====================
+        # NOTHING PAYABLE
+        # =====================
+        if not items or total <= 0:
+            print("❌ NOTHING PAYABLE")
+            bot.answer_callback_query(c.id, "⚠️ Nothing payable")
+            print("=== CHECKOUT END (NOTHING PAYABLE) ===")
+            return
+
+        # =====================
+        # CREATE ORDER
+        # =====================
         try:
+            print("📝 INSERTING ORDER...")
             cur = conn.cursor()
 
-            debug.append("→ INSERT INTO orders")
             cur.execute(
                 "INSERT INTO orders (id, user_id, amount, paid) VALUES (%s,%s,%s,0)",
                 (order_id, uid, total)
             )
 
             for item_id, file_id, price in items:
-                debug.append(f"→ INSERT order_item item_id={item_id}")
+                print("➕ INSERT ORDER_ITEM:", item_id)
                 cur.execute(
-                    """
-                    INSERT INTO order_items
-                    (order_id,item_id,file_id,price)
-                    VALUES (%s,%s,%s,%s)
-                    """,
+                    "INSERT INTO order_items (order_id,item_id,file_id,price) "
+                    "VALUES (%s,%s,%s,%s)",
                     (order_id, item_id, file_id, price)
                 )
 
             conn.commit()
             cur.close()
-            debug.append("✅ DB COMMIT OK")
+
+            print("✅ ORDER SAVED SUCCESSFULLY")
 
         except Exception as e:
             conn.rollback()
-            debug.append("❌ DB INSERT ERROR")
-            debug.append(str(e))
-            bot.send_message(uid, "<pre>" + "\n".join(debug) + "</pre>", parse_mode="HTML")
+            print("❌ DB INSERT ERROR:", e)
             bot.answer_callback_query(c.id, "❌ Checkout failed")
             return
 
-        # ---------------------
+        # =====================
         # CLEAR CART
-        # ---------------------
+        # =====================
         try:
-            cur = conn.cursor()
-            cur.execute("DELETE FROM cart WHERE user_id=%s", (uid,))
-            debug.append(f"CART_CLEARED_ROWS={cur.rowcount}")
+            print("🧹 CLEARING CART...")
+            conn.execute(
+                "DELETE FROM cart WHERE user_id=%s",
+                (uid,)
+            )
             conn.commit()
-            cur.close()
+            print("✅ CART CLEARED")
         except Exception as e:
-            debug.append("❌ CLEAR CART ERROR")
-            debug.append(str(e))
+            print("❌ CART CLEAR ERROR:", e)
 
-        # ---------------------
+        # =====================
         # PAYSTACK
-        # ---------------------
-        debug.append("→ CREATE PAYSTACK PAYMENT")
-        pay_url = None
+        # =====================
+        print("💳 CREATING PAYSTACK PAYMENT...")
+        pay_url = create_paystack_payment(
+            uid,
+            order_id,
+            total,
+            "Cart Order"
+        )
 
-        try:
-            pay_url = create_paystack_payment(uid, order_id, total, "Cart Order")
-            debug.append(f"PAY_URL={pay_url}")
-        except Exception as e:
-            debug.append("❌ PAYSTACK ERROR")
-            debug.append(str(e))
+        print("PAY_URL =", pay_url)
 
         if not pay_url:
-            debug.append("❌ PAY_URL EMPTY")
-            bot.send_message(uid, "<pre>" + "\n".join(debug) + "</pre>", parse_mode="HTML")
+            print("❌ PAYSTACK FAILED")
             bot.answer_callback_query(c.id, "❌ Payment error")
             return
 
-        # ---------------------
-        # SEND PAYMENT MESSAGE
-        # ---------------------
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
         kb.add(InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{order_id}"))
@@ -3283,26 +3307,17 @@ def all_callbacks(c):
             f"""🧺 <b>CART CHECKOUT</b>
 
 💵 <b>Total:</b> ₦{total}
-🆔 <code>{order_id}</code>
+🆔 <b>Order ID:</b> <code>{order_id}</code>
+👤 <b>Your name:</b> {user_name}
 """,
             parse_mode="HTML",
             reply_markup=kb
         )
 
-        debug.append("✅ CHECKOUT MESSAGE SENT")
-        debug.append("=== CHECKOUT DEBUG END ===")
-
-        # 🔎 FINAL DEBUG REPORT
-        bot.send_message(
-            uid,
-            "<b>CHECKOUT DEBUG REPORT</b>\n<pre>" +
-            "\n".join(debug) +
-            "</pre>",
-            parse_mode="HTML"
-        )
-
         bot.answer_callback_query(c.id)
+        print("=== CHECKOUT DEBUG END (SUCCESS) ===")
         return
+    
     # =====================
     # REMOVE FROM CART
     # =====================

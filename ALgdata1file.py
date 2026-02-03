@@ -3123,8 +3123,186 @@ def all_callbacks(c):
     uid = str(c.from_user.id)   # ✅ amfani da STRING (Postgres / MySQL safe)
     data = c.data
 
- 
 
+
+    # =====================
+    # CHECKOUT (DEBUG MODE)
+    # =====================
+    if data == "checkout":
+        debug = []
+        debug.append("=== CHECKOUT DEBUG START ===")
+        debug.append(f"USER_ID={uid}")
+        debug.append(f"CALLBACK_DATA={data}")
+
+        # ---------------------
+        # GET CART
+        # ---------------------
+        try:
+            rows = get_cart(uid)
+            debug.append(f"CART_ROWS_COUNT={len(rows)}")
+            debug.append(f"CART_ROWS={rows}")
+        except Exception as e:
+            debug.append("❌ GET_CART ERROR")
+            debug.append(str(e))
+            bot.send_message(uid, "<pre>" + "\n".join(debug) + "</pre>", parse_mode="HTML")
+            return
+
+        if not rows:
+            debug.append("❌ CART EMPTY")
+            bot.send_message(uid, "<pre>" + "\n".join(debug) + "</pre>", parse_mode="HTML")
+            bot.answer_callback_query(c.id, "❌ Cart empty")
+            return
+
+        order_id = str(uuid.uuid4())
+        total = 0
+        items = []
+
+        debug.append(f"ORDER_ID={order_id}")
+
+        # ---------------------
+        # PROCESS ITEMS
+        # ---------------------
+        for r in rows:
+            try:
+                item_id, title, price, file_id, group_key, owner_id = r
+            except Exception as e:
+                debug.append("❌ ROW UNPACK ERROR")
+                debug.append(str(r))
+                debug.append(str(e))
+                continue
+
+            debug.append(
+                f"\nITEM id={item_id} price={price} owner={owner_id} file={bool(file_id)}"
+            )
+
+            # OWNER CHECK
+            if str(owner_id) == uid:
+                debug.append("⛔ SKIP: OWNER ITEM")
+                continue
+
+            if not file_id:
+                debug.append("⛔ SKIP: NO FILE_ID")
+                continue
+
+            if not price or int(price) <= 0:
+                debug.append("⛔ SKIP: INVALID PRICE")
+                continue
+
+            total += int(price)
+            items.append((item_id, file_id, price))
+            debug.append("✅ ITEM ACCEPTED")
+
+        debug.append(f"\nVALID_ITEMS_COUNT={len(items)}")
+        debug.append(f"TOTAL={total}")
+
+        if not items or total <= 0:
+            debug.append("❌ NOTHING PAYABLE")
+            bot.send_message(uid, "<pre>" + "\n".join(debug) + "</pre>", parse_mode="HTML")
+            bot.answer_callback_query(
+                c.id,
+                "⚠️ Ba zaka iya siyan naka content ba"
+            )
+            return
+
+        # ---------------------
+        # INSERT ORDER
+        # ---------------------
+        try:
+            cur = conn.cursor()
+
+            debug.append("→ INSERT INTO orders")
+            cur.execute(
+                "INSERT INTO orders (id, user_id, amount, paid) VALUES (%s,%s,%s,0)",
+                (order_id, uid, total)
+            )
+
+            for item_id, file_id, price in items:
+                debug.append(f"→ INSERT order_item item_id={item_id}")
+                cur.execute(
+                    """
+                    INSERT INTO order_items
+                    (order_id,item_id,file_id,price)
+                    VALUES (%s,%s,%s,%s)
+                    """,
+                    (order_id, item_id, file_id, price)
+                )
+
+            conn.commit()
+            cur.close()
+            debug.append("✅ DB COMMIT OK")
+
+        except Exception as e:
+            conn.rollback()
+            debug.append("❌ DB INSERT ERROR")
+            debug.append(str(e))
+            bot.send_message(uid, "<pre>" + "\n".join(debug) + "</pre>", parse_mode="HTML")
+            bot.answer_callback_query(c.id, "❌ Checkout failed")
+            return
+
+        # ---------------------
+        # CLEAR CART
+        # ---------------------
+        try:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM cart WHERE user_id=%s", (uid,))
+            debug.append(f"CART_CLEARED_ROWS={cur.rowcount}")
+            conn.commit()
+            cur.close()
+        except Exception as e:
+            debug.append("❌ CLEAR CART ERROR")
+            debug.append(str(e))
+
+        # ---------------------
+        # PAYSTACK
+        # ---------------------
+        debug.append("→ CREATE PAYSTACK PAYMENT")
+        pay_url = None
+
+        try:
+            pay_url = create_paystack_payment(uid, order_id, total, "Cart Order")
+            debug.append(f"PAY_URL={pay_url}")
+        except Exception as e:
+            debug.append("❌ PAYSTACK ERROR")
+            debug.append(str(e))
+
+        if not pay_url:
+            debug.append("❌ PAY_URL EMPTY")
+            bot.send_message(uid, "<pre>" + "\n".join(debug) + "</pre>", parse_mode="HTML")
+            bot.answer_callback_query(c.id, "❌ Payment error")
+            return
+
+        # ---------------------
+        # SEND PAYMENT MESSAGE
+        # ---------------------
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
+        kb.add(InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{order_id}"))
+
+        bot.send_message(
+            uid,
+            f"""🧺 <b>CART CHECKOUT</b>
+
+💵 <b>Total:</b> ₦{total}
+🆔 <code>{order_id}</code>
+""",
+            parse_mode="HTML",
+            reply_markup=kb
+        )
+
+        debug.append("✅ CHECKOUT MESSAGE SENT")
+        debug.append("=== CHECKOUT DEBUG END ===")
+
+        # 🔎 FINAL DEBUG REPORT
+        bot.send_message(
+            uid,
+            "<b>CHECKOUT DEBUG REPORT</b>\n<pre>" +
+            "\n".join(debug) +
+            "</pre>",
+            parse_mode="HTML"
+        )
+
+        bot.answer_callback_query(c.id)
+        return
     # =====================
     # REMOVE FROM CART
     # =====================
@@ -3310,80 +3488,7 @@ def all_callbacks(c):
 
    
 
-    # =====================
-    # CHECKOUT (OWNER SAFE + STRING UID)
-    # =====================
-    if data == "checkout":
-        rows = get_cart(uid)
-        if not rows:
-            bot.answer_callback_query(c.id, "❌ Cart empty")
-            return
-
-        order_id = str(uuid.uuid4())
-        total = 0
-        items = []
-
-        for item_id, title, price, file_id, group_key, owner_id in rows:
-            if str(owner_id) == uid:   # 🔐 owner check FIXED
-                continue
-
-            if not file_id or not price:
-                continue
-
-            total += int(price)
-            items.append((item_id, file_id, price))
-
-        if not items or total <= 0:
-            bot.answer_callback_query(
-                c.id,
-                "⚠️ Ba zaka iya siyan naka content ba"
-            )
-            return
-
-        try:
-            conn.execute(
-                "INSERT INTO orders (id, user_id, amount, paid) VALUES (%s,%s,%s,0)",
-                (order_id, uid, total)
-            )
-
-            for item_id, file_id, price in items:
-                conn.execute(
-                    "INSERT INTO order_items (order_id,item_id,file_id,price) VALUES (%s,%s,%s,%s)",
-                    (order_id, item_id, file_id, price)
-                )
-
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            bot.answer_callback_query(c.id, "❌ Checkout failed")
-            return
-
-        # 🧹 clear cart AFTER success
-        conn.execute("DELETE FROM cart WHERE user_id=%s", (uid,))
-        conn.commit()
-
-        pay_url = create_paystack_payment(uid, order_id, total, "Cart Order")
-        if not pay_url:
-            bot.answer_callback_query(c.id, "❌ Payment error")
-            return
-
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
-        kb.add(InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{order_id}"))
-
-        bot.send_message(
-            uid,
-            f"""🧺 <b>CART CHECKOUT</b>
-
-💵 <b>Total:</b> ₦{total}
-🆔 <code>{order_id}</code>
-""",
-            parse_mode="HTML",
-            reply_markup=kb
-        )
-
-        bot.answer_callback_query(c.id)
-        return
+    
 
    
     # ================= MY MOVIES =================

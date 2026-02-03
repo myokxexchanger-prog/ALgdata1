@@ -2292,7 +2292,6 @@ def start_handler(msg):
     bot.send_message(msg.chat.id, "Welcome!")
 
 # ========= BUYD (ITEM ONLY | DEEP LINK → DM) =========
-
 from psycopg2.extras import RealDictCursor
 import uuid
 import time
@@ -2300,6 +2299,7 @@ import time
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("/start groupitem_"))
 def groupitem_deeplink_handler(msg):
     uid = msg.from_user.id
+    user_name = msg.from_user.first_name or "Customer"
 
     # ========= PARSE ITEM IDS =========
     try:
@@ -2458,12 +2458,20 @@ def groupitem_deeplink_handler(msg):
 
 📦 Items: {item_count}
 💵 Total: ₦{total}
+
+👤 <b>Your name is:</b> {user_name}
+🆔 <b>Order ID:</b>
+{order_id}
 """,
         parse_mode="HTML",
         reply_markup=kb
     )
 
     cur.close()
+
+
+
+
 
 
 # ================= ADMIN MANUAL SUPPORT SYSTEM ===========

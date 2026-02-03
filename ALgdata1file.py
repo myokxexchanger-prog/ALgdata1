@@ -2454,18 +2454,13 @@ def groupitem_deeplink_handler(msg):
 
 👤 <b>Your name is:</b> {user_name}
 🆔 <b>Order ID:</b>
-{order_id}
+<code>{order_id}</code>
 """,
         parse_mode="HTML",
         reply_markup=kb
     )
 
     cur.close()
-
-
-
-
-
 
 # ================= ADMIN MANUAL SUPPORT SYSTEM ===========
 
@@ -3294,7 +3289,7 @@ def all_callbacks(c):
 
 👤 <b>Your name is:</b> {user_name}
 🆔 <b>Order ID:</b>
-{order_id}
+<code>{order_id}</code>
 """,
             parse_mode="HTML",
             reply_markup=kb

@@ -1722,8 +1722,9 @@ def ignore_unexpected_text(m):
 # ACTIVE BUYERS (ADMIN ONLY | PAGINATION | EDIT MODE)
 # ======================================================
 
-# ================== END RUKUNI B ==================
+from psycopg2.extras import RealDictCursor
 
+# ================== CANCEL ORDER (POSTGRES | SAFE | CLEAN) ==================
 @bot.callback_query_handler(func=lambda c: c.data and c.data.startswith("cancel:"))
 def cancel_order_handler(c):
     uid = c.from_user.id
@@ -1731,18 +1732,27 @@ def cancel_order_handler(c):
 
     try:
         order_id = c.data.split("cancel:", 1)[1]
-    except:
+    except Exception:
         return
 
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
     # 🔎 Tabbatar order na wannan user ne kuma unpaid
-    order = conn.execute(
-        """
-        SELECT id
-        FROM orders
-        WHERE id=%s AND user_id=%s AND paid=0
-        """,
-        (order_id, uid)
-    ).fetchone()
+    try:
+        cur.execute(
+            """
+            SELECT id
+            FROM orders
+            WHERE id=%s
+              AND user_id=%s
+              AND paid=0
+            """,
+            (order_id, uid)
+        )
+        order = cur.fetchone()
+    except Exception:
+        cur.close()
+        return
 
     if not order:
         bot.send_message(
@@ -1750,27 +1760,39 @@ def cancel_order_handler(c):
             "❌ <b>Ba a sami order ba ko kuma an riga an biya shi.</b>",
             parse_mode="HTML"
         )
+        cur.close()
         return
 
-    # 🧹 Goge order_items
-    conn.execute(
-        "DELETE FROM order_items WHERE order_id=%s",
-        (order_id,)
-    )
+    # 🧹 Goge order_items gaba ɗaya
+    try:
+        cur.execute(
+            "DELETE FROM order_items WHERE order_id=%s",
+            (order_id,)
+        )
 
-    # 🧹 Goge order
-    conn.execute(
-        "DELETE FROM orders WHERE id=%s",
-        (order_id,)
-    )
+        # 🧹 Goge order
+        cur.execute(
+            "DELETE FROM orders WHERE id=%s",
+            (order_id,)
+        )
 
-    conn.commit()
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        cur.close()
+        return
 
     bot.send_message(
         uid,
         "❌ <b>An soke wannan order ɗin.</b>",
         parse_mode="HTML"
     )
+
+    cur.close()
+
+
+# ================== END RUKUNI B ==================
+
 
 # --- Added callback handler for in-bot "View All Movies" buttons ---
 @bot.callback_query_handler(func=lambda c: c.data in ("view_all_movies","viewall"))
@@ -2905,167 +2927,6 @@ def pay_all_unpaid(call):
 
     cur.close()
 
-
-# ===================== BUY ALL (CUSTOM IDS | PAYSTACK) =====================
-@bot.callback_query_handler(func=lambda c: c.data and c.data.startswith("buyall:"))
-def buy_all_handler(c):
-    uid = c.from_user.id
-    bot.answer_callback_query(c.id)
-
-    try:
-        ids_raw = c.data.split("buyall:", 1)[1]
-        item_ids = [int(x) for x in ids_raw.split(",") if x.strip().isdigit()]
-    except:
-        bot.send_message(uid, "❌ Invalid BUY ALL data.")
-        return
-
-    if not item_ids:
-        bot.send_message(uid, "❌ No movies selected.")
-        return
-
-    items = []
-
-    for iid in item_ids:
-        cur.execute(
-            "SELECT id, title, price, file_id FROM items WHERE id=%s",
-            (iid,)
-        )
-        row = cur.fetchone()
-
-        # 🔒 KAR A SHIGA ITEM MARA FILE
-        if row and row[3]:
-            items.append({
-                "id": row[0],
-                "title": row[1],
-                "price": int(row[2] or 0),
-                "file_id": row[3]
-            })
-
-    if not items:
-        bot.send_message(uid, "❌ No item mai delivery.")
-        return
-
-    _create_and_send_buyall(uid, items, c)
-
-
-# ===================== COMMON BUY ALL LOGIC (PAYSTACK) =====================
-def _create_and_send_buyall(uid, items, c):
-    movie_count = len(items)
-    total = sum(i["price"] for i in items)
-
-    discount = int(total * 0.10) if movie_count >= 10 else 0
-    final_total = total - discount
-
-    # 🛑 KARIYA 1: OWNERSHIP (ITEM LEVEL)
-    placeholders = ",".join(["%s"] * len(items))
-    cur.execute(
-        f"""
-        SELECT 1 FROM user_movies
-        WHERE user_id=%s AND item_id IN ({placeholders})
-        LIMIT 1
-        """,
-        [uid] + [i["id"] for i in items]
-    )
-    owned = cur.fetchone()
-
-    if owned:
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("🎥 PAID MOVIES", callback_data="my_movies"))
-        bot.send_message(
-            uid,
-            "✅ <b>Ka riga ka mallaki ɗaya ko fiye daga cikin waɗannan fina-finai.</b>\n\n"
-            "Je zuwa <b>PAID MOVIES</b> domin sake turawa.",
-            parse_mode="HTML",
-            reply_markup=kb
-        )
-        return
-
-    # 🛑 KARIYA 2: EXISTING UNPAID ORDER
-    cur.execute(
-        f"""
-        SELECT o.id, o.amount
-        FROM orders o
-        JOIN order_items oi ON oi.order_id = o.id
-        WHERE o.user_id=%s AND o.paid=0
-          AND oi.item_id IN ({placeholders})
-        LIMIT 1
-        """,
-        [uid] + [i["id"] for i in items]
-    )
-    old = cur.fetchone()
-
-    if old:
-        order_id = old[0]
-        final_total = old[1]
-    else:
-        order_id = str(uuid.uuid4())
-
-        cur.execute(
-            """
-            INSERT INTO orders (id, user_id, amount, paid)
-            VALUES (%s, %s, %s, 0)
-            """,
-            (order_id, uid, final_total)
-        )
-
-        for it in items:
-            cur.execute(
-                """
-                INSERT INTO order_items
-                (order_id, item_id, file_id, price)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (order_id, it["id"], it["file_id"], it["price"])
-            )
-
-        conn.commit()
-
-    # 🧪 DEBUG
-    dbg = "🤩 <b>BUY ALL ORDER CREATED</b>\n\n"
-    for it in items:
-        dbg += f"• {it['title']}\n"
-
-    bot.send_message(uid, dbg, parse_mode="HTML")
-
-    # ================== PAYSTACK ==================
-    pay_url = create_paystack_payment(
-        uid,
-        order_id,
-        final_total,
-        "Buy All Movies"
-    )
-
-    if not pay_url:
-        bot.send_message(uid, "❌ Payment error.")
-        return
-
-    # 🧾 SUMMARY
-    lines = [f"🎬 {i['title']} — ₦{i['price']}" for i in items]
-    summary = "\n".join(lines)
-
-    text = f"""🧾 <b>BUY ALL ORDER</b>
-
-{summary}
-
-🎞 <b>Movies:</b> {movie_count}
-💵 <b>Total:</b> ₦{total}
-🏷 <b>Discount:</b> ₦{discount}
-✅ <b>Final:</b> ₦{final_total}
-
-🆔 <b>Order ID:</b>
-<code>{order_id}</code>
-
-⚠️ <b>MUHIMMI:</b>
-<i>Ajiye wannan Order ID sosai.
-Idan wata matsala ta faru (biyan kuɗi ko delivery),
-ka tura wannan Order ID kai tsaye zuwa admin.</i>
-"""
-
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
-    kb.add(InlineKeyboardButton("❌ Cancel Order", callback_data=f"cancel:{order_id}"))
-
-    bot.send_message(uid, text, parse_mode="HTML", reply_markup=kb)
 
 import uuid
 from datetime import datetime

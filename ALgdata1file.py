@@ -3129,89 +3129,64 @@ def all_callbacks(c):
     # =====================
     if data == "checkout":
 
-        print("\n=== CHECKOUT DEBUG START ===")
-        print("USER_ID =", uid)
-        print("CALLBACK_DATA =", data)
-
         rows = get_cart(uid)
-
-        print("CART_ROWS_COUNT =", len(rows))
-        print("CART_ROWS =", rows)
-
         if not rows:
-            print("❌ CART EMPTY")
             bot.answer_callback_query(c.id, "❌ Cart empty")
             return
 
         order_id = str(uuid.uuid4())
-        print("ORDER_ID =", order_id)
+        user_name = c.from_user.full_name or "User"
 
-        total = 0
-        items = []
+        # =====================
+        # GROUP BY GROUP_KEY
+        # =====================
+        groups = {}
         owned_count = 0
 
-        user_name = c.from_user.full_name or "User"
-        print("USER_NAME =", user_name)
-
-        for idx, row in enumerate(rows, start=1):
-            print(f"\n-- ROW {idx} RAW =", row)
-
+        for row in rows:
             try:
                 item_id, title, price, file_id, group_key = row
-            except Exception as e:
-                print("❌ ROW UNPACK ERROR:", e)
+            except ValueError:
                 continue
 
-            print("ITEM_ID =", item_id)
-            print("TITLE =", title)
-            print("PRICE =", price)
-            print("FILE_ID =", bool(file_id))
-
-            # 🔎 CHECK OWNERSHIP
-            try:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT 1 FROM user_movies WHERE user_id=%s AND item_id=%s LIMIT 1",
-                    (uid, item_id)
-                )
-                owned = cur.fetchone()
-                cur.close()
-            except Exception as e:
-                print("❌ OWNERSHIP CHECK ERROR:", e)
-                owned = None
-
-            print("ALREADY_OWNED =", bool(owned))
+            # 🔎 OWNERSHIP CHECK
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT 1 FROM user_movies WHERE user_id=%s AND item_id=%s LIMIT 1",
+                (uid, item_id)
+            )
+            owned = cur.fetchone()
+            cur.close()
 
             if owned:
                 owned_count += 1
                 continue
 
-            if not price or not file_id:
-                print("⚠️ SKIPPED (NO PRICE OR FILE)")
+            if not file_id or not price:
                 continue
 
-            total += int(price)
-            items.append((item_id, file_id, price))
+            key = group_key or f"single_{item_id}"
 
-            print("✅ ADDED TO PAY ITEMS")
+            if key not in groups:
+                groups[key] = {
+                    "price": int(price),
+                    "items": [],
+                    "title": title
+                }
 
-        print("\nVALID_ITEMS_COUNT =", len(items))
-        print("OWNED_ITEMS_COUNT =", owned_count)
-        print("TOTAL_AMOUNT =", total)
+            groups[key]["items"].append({
+                "item_id": item_id,
+                "file_id": file_id,
+                "price": int(price),
+                "title": title
+            })
 
         # =====================
-        # ALL ITEMS ALREADY OWNED
+        # ALL OWNED
         # =====================
-        if owned_count > 0 and not items:
-            print("ℹ️ ALL ITEMS ALREADY OWNED")
-
+        if owned_count > 0 and not groups:
             kb = InlineKeyboardMarkup()
-            kb.add(
-                InlineKeyboardButton(
-                    "📽 Paid Movies",
-                    callback_data="my_movies"
-                )
-            )
+            kb.add(InlineKeyboardButton("📽 Paid Movies", callback_data="my_movies"))
 
             bot.send_message(
                 uid,
@@ -3221,82 +3196,77 @@ def all_callbacks(c):
                 parse_mode="HTML",
                 reply_markup=kb
             )
-
             bot.answer_callback_query(c.id)
-            print("=== CHECKOUT END (OWNED) ===")
             return
 
         # =====================
-        # NOTHING PAYABLE
+        # CALCULATE TOTAL
         # =====================
-        if not items or total <= 0:
-            print("❌ NOTHING PAYABLE")
+        total = sum(g["price"] for g in groups.values())
+        if total <= 0:
             bot.answer_callback_query(c.id, "⚠️ Nothing payable")
-            print("=== CHECKOUT END (NOTHING PAYABLE) ===")
             return
 
         # =====================
         # CREATE ORDER
         # =====================
         try:
-            print("📝 INSERTING ORDER...")
             cur = conn.cursor()
-
             cur.execute(
                 "INSERT INTO orders (id, user_id, amount, paid) VALUES (%s,%s,%s,0)",
                 (order_id, uid, total)
             )
 
-            for item_id, file_id, price in items:
-                print("➕ INSERT ORDER_ITEM:", item_id)
-                cur.execute(
-                    "INSERT INTO order_items (order_id,item_id,file_id,price) "
-                    "VALUES (%s,%s,%s,%s)",
-                    (order_id, item_id, file_id, price)
-                )
+            for g in groups.values():
+                for i in g["items"]:
+                    cur.execute(
+                        """
+                        INSERT INTO order_items (order_id,item_id,file_id,price)
+                        VALUES (%s,%s,%s,%s)
+                        """,
+                        (order_id, i["item_id"], i["file_id"], i["price"])
+                    )
 
             conn.commit()
             cur.close()
-
-            print("✅ ORDER SAVED SUCCESSFULLY")
-
         except Exception as e:
             conn.rollback()
-            print("❌ DB INSERT ERROR:", e)
             bot.answer_callback_query(c.id, "❌ Checkout failed")
             return
 
         # =====================
-        # CLEAR CART
+        # 🧹 CLEAR CART (FIXED)
         # =====================
         try:
-            print("🧹 CLEARING CART...")
-            conn.execute(
+            cur = conn.cursor()
+            cur.execute(
                 "DELETE FROM cart WHERE user_id=%s",
                 (uid,)
             )
             conn.commit()
-            print("✅ CART CLEARED")
+            cur.close()
         except Exception as e:
+            conn.rollback()
             print("❌ CART CLEAR ERROR:", e)
 
         # =====================
         # PAYSTACK
         # =====================
-        print("💳 CREATING PAYSTACK PAYMENT...")
         pay_url = create_paystack_payment(
             uid,
             order_id,
             total,
-            "Cart Order"
+            f"{len(groups)} item(s)"
         )
 
-        print("PAY_URL =", pay_url)
-
         if not pay_url:
-            print("❌ PAYSTACK FAILED")
             bot.answer_callback_query(c.id, "❌ Payment error")
             return
+
+        # =====================
+        # FORMAT MESSAGE
+        # =====================
+        unique_titles = [g["title"] for g in groups.values()]
 
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
@@ -3304,19 +3274,25 @@ def all_callbacks(c):
 
         bot.send_message(
             uid,
-            f"""🧺 <b>CART CHECKOUT</b>
+            f"""🧺 <b>Your order created 🎉</b>
 
-💵 <b>Total:</b> ₦{total}
-🆔 <b>Order ID:</b> <code>{order_id}</code>
-👤 <b>Your name:</b> {user_name}
+🎬 <b>You will buy:</b>
+{", ".join(unique_titles)}
+
+📦 Films: {len(groups)}
+💵 Total amount: ₦{total}
+
+👤 <b>Your name is:</b> {user_name}
+🆔 <b>Order ID:</b>
+{order_id}
 """,
             parse_mode="HTML",
             reply_markup=kb
         )
 
         bot.answer_callback_query(c.id)
-        print("=== CHECKOUT DEBUG END (SUCCESS) ===")
         return
+    
     
     # =====================
     # REMOVE FROM CART

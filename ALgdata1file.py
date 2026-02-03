@@ -1195,42 +1195,28 @@ def start(message):
 
 
 
+# ======================================
+# TEXT BUTTON HANDLER (GLOBAL SAFE)
+# ======================================
 @bot.message_handler(
-    func=lambda msg: isinstance(getattr(msg, "text", None), str)
-    and msg.text in ["HELP", "Check cart"]
+    func=lambda msg: (
+        isinstance(getattr(msg, "text", None), str)
+        and msg.text.strip() in ["HELP", "Check cart"]
+    )
 )
 def user_buttons(message):
-    txt = message.text
-    uid = message.from_user.id
-
-    if txt == "Films ditin":
-        try:
-            send_weekly_list(message)
-        except Exception as e:
-            print("Films din wannan satin ERROR:", e)
-            bot.send_message(
-                message.chat.id,
-                "⚠️ An samu matsala wajen nuna fina-finan wannan satin."
-            )
-        return
+    txt = message.text.strip()
+    uid = str(message.from_user.id)   # 🔐 STRING FOR POSTGRES
 
     # ======= TAIMAKO =======
     if txt == "HELP":
         kb = InlineKeyboardMarkup()
 
-        # ALWAYS open admin DM directly – no callback, no message sending
         if ADMIN_USERNAME:
             kb.add(
                 InlineKeyboardButton(
                     "Contact Admin",
                     url=f"https://t.me/{ADMIN_USERNAME}"
-                )
-            )
-        else:
-            kb.add(
-                InlineKeyboardButton(
-                    "🆘 Support Help",
-                    url="https://t.me/{}".format(ADMIN_USERNAME)
                 )
             )
 
@@ -1243,38 +1229,62 @@ def user_buttons(message):
 
     # ======= CART =======
     if txt == "Check cart":
-        show_cart(message.chat.id, message.from_user.id)
+        try:
+            show_cart(message.chat.id, uid)
+        except Exception as e:
+            print("CHECK CART ERROR:", e)
+            bot.send_message(
+                message.chat.id,
+                "⚠️ An samu matsala wajen bude cart."
+            )
         return
 
 
-def clear_cart(uid):
-    cur = conn.cursor()
-    cur.execute(
-        "DELETE FROM cart WHERE user_id = %s",
-        (uid,)
-    )
-    cur.close()
-
-
-def get_cart(uid):
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT
-            c.item_id,
-            i.title,
-            i.price,
-            i.file_id
-        FROM cart c
-        JOIN items i ON i.id = c.item_id
-        WHERE c.user_id = %s
-        ORDER BY c.id DESC
-    """, (uid,))
-    rows = cur.fetchall()
-    cur.close()
-    return rows
 # ======================================
+# CLEAR CART
+# ======================================
+def clear_cart(uid):
+    uid = str(uid)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "DELETE FROM cart WHERE user_id = %s",
+            (uid,)
+        )
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        conn.rollback()
+        print("CLEAR CART ERROR:", e)
 
 
+# ======================================
+# GET CART (POSTGRES SAFE)
+# ======================================
+def get_cart(uid):
+    uid = str(uid)
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                c.item_id,
+                i.title,
+                i.price,
+                i.file_id
+            FROM cart c
+            JOIN items i ON i.id = c.item_id
+            WHERE c.user_id = %s
+            ORDER BY c.id DESC
+        """, (uid,))
+        rows = cur.fetchall()
+        cur.close()
+        return rows
+    except Exception as e:
+        print("GET_CART ERROR:", e)
+        return []
+
+
+# ======================================
 def get_credits_for_user(user_id):
     return 0, []
 
@@ -1297,7 +1307,6 @@ def parse_caption_for_title_price(text):
         return parts[0].strip(), int(parts[1].strip())
 
     return None, None
-
 
 @bot.message_handler(
     func=lambda m: m.from_user.id == ADMIN_ID and m.from_user.id in admin_states
@@ -1345,37 +1354,55 @@ def cancel_cmd(message):
         return
 
 # ==================================================
+# ==================================================
 def get_cart(uid):
-    return conn.execute(
-        """
-        SELECT
-            c.item_id,
-            i.title,
-            i.price,
-            i.file_id,
-            i.group_key
-        FROM cart c
-        JOIN items i ON i.id = c.item_id
-        WHERE c.user_id=%s
-        """,
-        (uid,)
-    ).fetchall()
+    uid = str(uid)  # 🔐 MUHIMMI
+
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                c.item_id,
+                i.title,
+                i.price,
+                i.file_id,
+                i.group_key
+            FROM cart c
+            JOIN items i ON i.id = c.item_id
+            WHERE c.user_id = %s
+            """,
+            (uid,)
+        )
+        rows = cur.fetchall()
+        cur.close()
+        return rows
+
+    except Exception as e:
+        # 🔥 DEBUG MAI KARFI
+        print("GET_CART ERROR:", e)
+        return []
+# End
 
 #End
 
 # ========== BUILD CART VIEW (GROUP-AWARE - FIXED) ==========
 def build_cart_view(uid):
+    uid = str(uid)  # 🔐 MUHIMMI
     rows = get_cart(uid)
 
     kb = InlineKeyboardMarkup()
 
     # ===== IDAN CART BABU KOMAI =====
     if not rows:
-        text = " <b>You haven’t added any items to your cart yet,\n\n Check our channel to buy movie.</b>"
+        text = (
+            "<b>You haven’t added any items to your cart yet.\n\n"
+            "Check our channel to buy movie.</b>"
+        )
 
         kb.row(
             InlineKeyboardButton(
-                "🏘Our Channel",
+                "🏘 Our Channel",
                 url=f"https://t.me/{CHANNEL.lstrip('@')}"
             )
         )
@@ -1410,7 +1437,6 @@ def build_cart_view(uid):
         price = g["price"]
 
         total += price
-
         lines.append(f"🎬 {title} — ₦{price}")
 
         ids_str = "_".join(str(i) for i in ids)
@@ -1431,7 +1457,7 @@ def build_cart_view(uid):
         + "\n".join(lines)
     )
 
-    # ===== ACTION BUTTONS (LAYI 1: 1   2) =====
+    # ===== ACTION BUTTONS =====
     kb.row(
         InlineKeyboardButton("🧹 Clear Cart", callback_data="clearcart"),
         InlineKeyboardButton("💵 CHECKOUT", callback_data="checkout")
@@ -1440,7 +1466,7 @@ def build_cart_view(uid):
     # ===== OUR CHANNEL BUTTON =====
     kb.row(
         InlineKeyboardButton(
-            "🏘Our Channel",
+            "🏘 Our Channel",
             url=f"https://t.me/{CHANNEL.lstrip('@')}"
         )
     )

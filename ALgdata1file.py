@@ -3102,86 +3102,68 @@ def all_callbacks(c):
     data = c.data
 
 
-
     # =====================
-    # ADD TO CART (FULL DEBUG – ALWAYS PRINT)
+    # ADD TO CART (POSTGRES SAFE + DEBUG)
     # =====================
     if data.startswith("addcartdm:"):
         debug = []
-
         debug.append("=== ADD TO CART DEBUG START ===")
         debug.append(f"USER_ID={uid}")
         debug.append(f"CALLBACK_DATA={data}")
 
-        # 1️⃣ parse callback
         try:
             raw = data.split(":", 1)[1]
-            debug.append(f"RAW={raw}")
             item_ids = [i for i in raw.split("_") if i.isdigit()]
             debug.append(f"PARSED_IDS={item_ids}")
         except Exception as e:
-            debug.append("❌ PARSE FAILED")
+            debug.append("PARSE ERROR")
             debug.append(str(e))
-
-            bot.send_message(
-                uid,
-                "<pre>" + "\n".join(debug) + "</pre>",
-                parse_mode="HTML"
-            )
-            bot.answer_callback_query(c.id, "❌ Parse error")
+            bot.send_message(uid, "<pre>" + "\n".join(debug) + "</pre>", parse_mode="HTML")
             return
 
         if not item_ids:
-            debug.append("❌ NO VALID ITEM IDS")
-
-            bot.send_message(
-                uid,
-                "<pre>" + "\n".join(debug) + "</pre>",
-                parse_mode="HTML"
-            )
-            bot.answer_callback_query(c.id, "❌ Invalid item")
+            debug.append("NO VALID IDS")
+            bot.send_message(uid, "<pre>" + "\n".join(debug) + "</pre>", parse_mode="HTML")
             return
 
         added = 0
         skipped = 0
 
-        # 2️⃣ DB operations
         try:
+            cur = conn.cursor()
+
             for item_id in item_ids:
                 debug.append(f"\n▶ ITEM_ID={item_id}")
 
-                # check item exists
-                item = conn.execute(
+                # item exists?
+                cur.execute(
                     "SELECT id FROM items WHERE id=%s",
                     (item_id,)
-                ).fetchone()
-
+                )
+                item = cur.fetchone()
                 debug.append(f"ITEM_EXISTS={bool(item)}")
 
                 if not item:
                     skipped += 1
-                    debug.append("SKIP: item not found")
                     continue
 
-                # check cart
-                exists = conn.execute(
+                # already in cart?
+                cur.execute(
                     "SELECT 1 FROM cart WHERE user_id=%s AND item_id=%s",
                     (uid, item_id)
-                ).fetchone()
-
-                debug.append(f"ALREADY_IN_CART={bool(exists)}")
+                )
+                exists = cur.fetchone()
+                debug.append(f"IN_CART={bool(exists)}")
 
                 if exists:
                     skipped += 1
-                    debug.append("SKIP: already in cart")
                     continue
 
                 # insert
-                conn.execute(
+                cur.execute(
                     "INSERT INTO cart (user_id, item_id) VALUES (%s, %s)",
                     (uid, item_id)
                 )
-
                 debug.append("INSERT_OK")
                 added += 1
 
@@ -3190,7 +3172,7 @@ def all_callbacks(c):
 
         except Exception as e:
             conn.rollback()
-            debug.append("❌ DB EXCEPTION")
+            debug.append("DB ERROR")
             debug.append(str(e))
 
             bot.send_message(
@@ -3200,10 +3182,8 @@ def all_callbacks(c):
                 "</pre>",
                 parse_mode="HTML"
             )
-            bot.answer_callback_query(c.id, "❌ Add to cart failed")
             return
 
-        # 3️⃣ success
         debug.append("\n=== RESULT ===")
         debug.append(f"ADDED={added}")
         debug.append(f"SKIPPED={skipped}")
@@ -3218,9 +3198,10 @@ def all_callbacks(c):
 
         bot.answer_callback_query(
             c.id,
-            f"✅ Added {added} | Skipped {skipped}"
+            f"✅ Added {added} | ⚠️ Skipped {skipped}"
         )
         return
+
     # =====================
     # VIEW CART
     # =====================

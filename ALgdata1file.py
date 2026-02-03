@@ -3665,29 +3665,36 @@ def all_callbacks(c):
         oid = data.split(":", 1)[1]
 
         try:
-            # 1️⃣ goge order_items farko
-            conn.execute(
+            # tabbatar order na user ne kuma unpaid
+            cur = conn.cursor()
+            cur.execute(
                 """
-                DELETE FROM order_items
-                WHERE order_id IN (
-                    SELECT id FROM orders
-                    WHERE id=%s AND user_id=%s AND paid=0
-                )
-                """,
-                (oid, uid)
-            )
-
-            # 2️⃣ goge order
-            conn.execute(
-                """
-                DELETE FROM orders
+                SELECT 1 FROM orders
                 WHERE id=%s AND user_id=%s AND paid=0
                 """,
                 (oid, uid)
             )
+            if not cur.fetchone():
+                bot.answer_callback_query(c.id, "❌ Order not found")
+                cur.close()
+                return
+
+            # 1️⃣ goge order_items farko
+            cur.execute(
+                "DELETE FROM order_items WHERE order_id=%s",
+                (oid,)
+            )
+
+            # 2️⃣ goge order
+            cur.execute(
+                "DELETE FROM orders WHERE id=%s",
+                (oid,)
+            )
 
             conn.commit()
-        except Exception:
+            cur.close()
+
+        except Exception as e:
             conn.rollback()
             bot.answer_callback_query(c.id, "❌ Failed to remove")
             return
@@ -3708,8 +3715,10 @@ def all_callbacks(c):
     # =====================
     if data == "delete_unpaid":
         try:
+            cur = conn.cursor()
+
             # 1️⃣ goge order_items na unpaid orders
-            conn.execute(
+            cur.execute(
                 """
                 DELETE FROM order_items
                 WHERE order_id IN (
@@ -3721,7 +3730,7 @@ def all_callbacks(c):
             )
 
             # 2️⃣ goge orders
-            conn.execute(
+            cur.execute(
                 """
                 DELETE FROM orders
                 WHERE user_id=%s AND paid=0
@@ -3730,6 +3739,8 @@ def all_callbacks(c):
             )
 
             conn.commit()
+            cur.close()
+
         except Exception:
             conn.rollback()
             bot.answer_callback_query(c.id, "❌ Failed to delete")
@@ -3743,31 +3754,10 @@ def all_callbacks(c):
             reply_markup=kb,
             parse_mode="HTML"
         )
-        bot.answer_callback_query(c.id, "🗑 Duk an goge")
+        bot.answer_callback_query(c.id, "🗑 All unpaid orders deleted")
         return
 
-    # ===============================
-    # SERIES MODE (ADMIN ONLY)
-    # ===============================
-    if data == "groupitems":
-        if uid != ADMIN_ID:
-            return bot.answer_callback_query(c.id, "groupitems.")
-
-        series_sessions[uid] = {
-            "files": [],
-            "stage": "collect"
-        }
-
-        bot.send_message(
-            uid,
-            "📺 <b>Series Mode ya fara</b>\n\n"
-            "Ka fara turo videos/documents.\n"
-            "Idan ka gama rubuta <b>Done</b>.",
-            parse_mode="HTML"
-        )
-        bot.answer_callback_query(c.id)
-        return
-
+    
     # =====================
     # OPEN PAID ORDERS (PAGE 0)
     # =====================

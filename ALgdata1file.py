@@ -2044,15 +2044,25 @@ def show_cart(chat_id, user_id):
 def send_weekly_films(call):
     return send_weekly_list(call.message)
 
-# ---------- My Orders (UNPAID with per-item REMOVE | FIXED) ----------
+# ---------- My Orders (UNPAID with per-item REMOVE | FIXED COUNT ONLY) ----------
 ORDERS_PER_PAGE = 5
 
 def build_unpaid_orders_view(uid, page):
     offset = page * ORDERS_PER_PAGE
 
-    # ===== COUNT ORDERS =====
+    # ===== COUNT ORDERS (FIXED: IGNORE EMPTY / DELETED ORDERS) =====
     cur.execute(
-        "SELECT COUNT(*) FROM orders WHERE user_id=%s AND paid=0",
+        """
+        SELECT COUNT(DISTINCT o.id)
+        FROM orders o
+        WHERE o.user_id=%s
+          AND o.paid=0
+          AND EXISTS (
+              SELECT 1
+              FROM order_items oi
+              WHERE oi.order_id = o.id
+          )
+        """,
         (uid,)
     )
     total = cur.fetchone()[0]
@@ -2073,15 +2083,21 @@ def build_unpaid_orders_view(uid, page):
     # ===== TOTAL BALANCE (SOURCE OF TRUTH) =====
     cur.execute(
         """
-        SELECT COALESCE(SUM(amount), 0)
-        FROM orders
-        WHERE user_id=%s AND paid=0
+        SELECT COALESCE(SUM(o.amount), 0)
+        FROM orders o
+        WHERE o.user_id=%s
+          AND o.paid=0
+          AND EXISTS (
+              SELECT 1
+              FROM order_items oi
+              WHERE oi.order_id = o.id
+          )
         """,
         (uid,)
     )
     total_amount = cur.fetchone()[0]
 
-    # ===== FETCH ORDERS =====
+    # ===== FETCH ORDERS (UNCHANGED) =====
     cur.execute(
         """
         SELECT
@@ -2169,8 +2185,6 @@ def build_unpaid_orders_view(uid, page):
     )
 
     return text, kb
-
-
 def build_paid_orders_view(uid, page):
     offset = page * ORDERS_PER_PAGE
 

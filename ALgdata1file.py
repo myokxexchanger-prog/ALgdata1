@@ -2451,13 +2451,13 @@ def groupitem_deeplink_handler(msg):
 
     bot.send_message(
         uid,
-        f"""🧺 <b>Your created 🎉</b>
+        f"""🧺 <b>Your order created 🎉</b>
 
 🎬 <b>You will buy:</b>
 {", ".join(unique_titles)}
 
 📦 Films: {item_count}
-💵 TOtal amount: ₦{total}
+💵 Total amount: ₦{total}
 
 👤 <b>Your name is:</b> {user_name}
 🆔 <b>Order ID:</b>

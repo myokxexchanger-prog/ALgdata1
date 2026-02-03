@@ -946,53 +946,7 @@ def _start_deeplink_handler(msg):
 
 # ================== END RUKUNI B ==================
 
-@bot.callback_query_handler(func=lambda c: c.data and c.data.startswith("cancel:"))
-def cancel_order_handler(c):
-    uid = c.from_user.id
-    bot.answer_callback_query(c.id)
 
-    try:
-        order_id = c.data.split("cancel:", 1)[1]
-    except Exception:
-        return
-
-    # 🔎 Tabbatar order na wannan user ne kuma unpaid
-    order = conn.execute(
-        """
-        SELECT id
-        FROM orders
-        WHERE id=%s AND user_id=%s AND paid=0
-        """,
-        (order_id, uid)
-    ).fetchone()
-
-    if not order:
-        bot.send_message(
-            uid,
-            "❌ <b>No order was found. It has already been paid for.</b>",
-            parse_mode="HTML"
-        )
-        return
-
-    # 🧹 Goge order_items
-    conn.execute(
-        "DELETE FROM order_items WHERE order_id=%s",
-        (order_id,)
-    )
-
-    # 🧹 Goge order
-    conn.execute(
-        "DELETE FROM orders WHERE id=%s",
-        (order_id,)
-    )
-
-    conn.commit()
-
-    bot.send_message(
-        uid,
-        "❌ <b>You cancled this order.</b>",
-        parse_mode="HTML"
-    )
 
 # --- Added callback handler for in-bot "View All Movies" buttons ---
 @bot.callback_query_handler(func=lambda c: c.data in ("view_all_movies","viewall"))

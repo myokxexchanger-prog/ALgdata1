@@ -378,24 +378,16 @@ bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 # ========= FLASK =========
 app = Flask(__name__)
 
+import time
+
 def create_paystack_payment(user_id, order_id, amount, title):
-    bot.send_message(user_id, "🧪 PAYSTACK DEBUG: function called")
-
-    if not PAYSTACK_SECRET:
-        bot.send_message(user_id, "❌ PAYSTACK DEBUG: PAYSTACK_SECRET missing")
-        return None
-
-    if not PAYSTACK_REDIRECT_URL:
-        bot.send_message(user_id, "❌ PAYSTACK DEBUG: PAYSTACK_REDIRECT_URL missing")
-        return None
-
     headers = {
         "Authorization": f"Bearer {PAYSTACK_SECRET}",
         "Content-Type": "application/json"
     }
 
     payload = {
-        "reference": str(order_id),
+        "reference": f"{order_id}_{int(time.time())}",  # ✅ FIX
         "amount": int(amount) * 100,
         "currency": "NGN",
         "callback_url": PAYSTACK_REDIRECT_URL,
@@ -407,37 +399,19 @@ def create_paystack_payment(user_id, order_id, amount, title):
         }
     }
 
-    bot.send_message(user_id, f"🧪 PAYSTACK DEBUG: payload = {payload}")
+    r = requests.post(
+        f"{PAYSTACK_BASE}/transaction/initialize",
+        json=payload,
+        headers=headers,
+        timeout=30
+    )
 
-    try:
-        r = requests.post(
-            f"{PAYSTACK_BASE}/transaction/initialize",
-            json=payload,
-            headers=headers,
-            timeout=30
-        )
-
-        bot.send_message(user_id, f"🧪 PAYSTACK DEBUG: status_code = {r.status_code}")
-        bot.send_message(user_id, f"🧪 PAYSTACK DEBUG: response = {r.text}")
-
-        data = r.json()
-
-        if not data.get("status"):
-            bot.send_message(user_id, f"❌ PAYSTACK DEBUG: status false → {data}")
-            return None
-
-        auth_url = data.get("data", {}).get("authorization_url")
-
-        if not auth_url:
-            bot.send_message(user_id, "❌ PAYSTACK DEBUG: authorization_url missing")
-            return None
-
-        bot.send_message(user_id, "✅ PAYSTACK DEBUG: success")
-        return auth_url
-
-    except Exception as e:
-        bot.send_message(user_id, f"❌ PAYSTACK DEBUG: exception → {repr(e)}")
+    data = r.json()
+    if not data.get("status"):
         return None
+
+    return data["data"]["authorization_url"]
+
 
 
 # ========= HOME / KEEP ALIVE =========

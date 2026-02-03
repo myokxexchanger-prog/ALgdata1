@@ -3127,10 +3127,10 @@ def all_callbacks(c):
     uid = str(c.from_user.id)   # ✅ amfani da STRING (Postgres / MySQL safe)
     data = c.data
 
-   
+ 
 
     # =====================
-    # REMOVE FROM CART (SAFE)
+    # REMOVE FROM CART
     # =====================
     if data.startswith("removecart:"):
         raw = data.split(":", 1)[1]
@@ -3149,8 +3149,7 @@ def all_callbacks(c):
                     "DELETE FROM cart WHERE user_id=%s AND item_id=%s",
                     (uid, item_id)
                 )
-                removed += cur.rowcount   # 🔥 mu san ko an goge wani abu
-
+                removed += cur.rowcount
             conn.commit()
             cur.close()
         except Exception:
@@ -3158,7 +3157,7 @@ def all_callbacks(c):
             bot.answer_callback_query(c.id, "❌ Remove failed")
             return
 
-        # 🚫 IDAN BABU ABIN DA AKA GOGE
+        # 🚫 idan babu abin da aka goge
         if removed == 0:
             bot.answer_callback_query(
                 c.id,
@@ -3166,13 +3165,13 @@ def all_callbacks(c):
             )
             return
 
-        # 🔁 EDIT CART MESSAGE (ko empty)
+        # 🔁 EDIT CART MESSAGE
         msg_id = cart_sessions.get(uid)
         if msg_id:
             text, kb = build_cart_view(uid)
             try:
                 bot.edit_message_text(
-                    chat_id=uid,
+                    chat_id=c.message.chat.id,
                     message_id=msg_id,
                     text=text,
                     reply_markup=kb,
@@ -3185,7 +3184,7 @@ def all_callbacks(c):
         return
 
     # =====================
-    # CLEAR CART (SAFE)
+    # CLEAR CART
     # =====================
     if data == "clearcart":
         try:
@@ -3194,7 +3193,7 @@ def all_callbacks(c):
                 "DELETE FROM cart WHERE user_id=%s",
                 (uid,)
             )
-            removed = cur.rowcount   # 🔥 muhimmanci sosai
+            removed = cur.rowcount
             conn.commit()
             cur.close()
         except Exception:
@@ -3202,7 +3201,6 @@ def all_callbacks(c):
             bot.answer_callback_query(c.id, "❌ Clear failed")
             return
 
-        # 🚫 IDAN CART TUNI EMPTY
         if removed == 0:
             bot.answer_callback_query(
                 c.id,
@@ -3210,13 +3208,13 @@ def all_callbacks(c):
             )
             return
 
-        # 🔁 EDIT CART MESSAGE (zai nuna empty cart text)
+        # 🔁 EDIT CART MESSAGE (zai nuna empty cart)
         msg_id = cart_sessions.get(uid)
         if msg_id:
             text, kb = build_cart_view(uid)
             try:
                 bot.edit_message_text(
-                    chat_id=uid,
+                    chat_id=c.message.chat.id,
                     message_id=msg_id,
                     text=text,
                     reply_markup=kb,
@@ -3227,8 +3225,6 @@ def all_callbacks(c):
 
         bot.answer_callback_query(c.id, "🧹 Cart cleared")
         return
-
-
 
 
 

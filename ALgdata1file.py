@@ -2669,7 +2669,7 @@ Tura <b>/sendall</b> domin a sake tura items.""",
 import uuid
 from psycopg2.extras import RealDictCursor
 
-# ========= PAY ALL UNPAID (SAFE | GROUP-AWARE | CLEAN | FIXED) =========
+# ========= PAY ALL UNPAID (SAFE | GROUP-AWARE | CLEAN | FINAL FIX) =========
 @bot.callback_query_handler(func=lambda c: c.data == "payall:")
 def pay_all_unpaid(call):
     uid = call.from_user.id
@@ -2679,7 +2679,7 @@ def pay_all_unpaid(call):
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
     # ==================================================
-    # 1️⃣ FETCH ALL UNPAID ORDER ITEMS (EXISTING ORDERS)
+    # 1️⃣ FETCH ALL UNPAID ORDER ITEMS
     # ==================================================
     try:
         cur.execute(
@@ -2710,7 +2710,7 @@ def pay_all_unpaid(call):
         return
 
     # ==================================================
-    # 2️⃣ FILTER VALID ITEMS (LIKE GROUPITEM)
+    # 2️⃣ FILTER VALID ITEMS
     # ==================================================
     items = [
         r for r in rows
@@ -2726,7 +2726,7 @@ def pay_all_unpaid(call):
     old_order_ids = list({i["old_order_id"] for i in items})
 
     # ==================================================
-    # 3️⃣ OWNERSHIP PROTECTION
+    # 3️⃣ OWNERSHIP CHECK
     # ==================================================
     try:
         cur.execute(
@@ -2750,7 +2750,7 @@ def pay_all_unpaid(call):
         return
 
     # ==================================================
-    # 4️⃣ GROUP_KEY PRICING (CORE LOGIC)
+    # 4️⃣ GROUP KEY LOGIC
     # ==================================================
     groups = {}
     for i in items:
@@ -2769,7 +2769,7 @@ def pay_all_unpaid(call):
         return
 
     # ==================================================
-    # 5️⃣ CREATE ONE COLLECTOR ORDER (PAYALL ORDER)
+    # 5️⃣ CREATE COLLECTOR ORDER
     # ==================================================
     order_id = str(uuid.uuid4())
 
@@ -2790,12 +2790,7 @@ def pay_all_unpaid(call):
                     (order_id, item_id, file_id, price)
                     VALUES (%s, %s, %s, %s)
                     """,
-                    (
-                        order_id,
-                        i["item_id"],
-                        i["file_id"],
-                        g["price"]
-                    )
+                    (order_id, i["item_id"], i["file_id"], g["price"])
                 )
 
         conn.commit()
@@ -2805,30 +2800,33 @@ def pay_all_unpaid(call):
         return
 
     # ==================================================
-    # 🔥 DELETE OLD UNPAID ORDERS (CLEAN FIX)
+    # 🔥 DELETE OLD ORDERS (EXCEPT NEW ONE)
     # ==================================================
-    try:
-        cur.execute(
-            f"""
-            DELETE FROM order_items
-            WHERE order_id IN ({",".join(["%s"] * len(old_order_ids))})
-            """,
-            tuple(old_order_ids)
-        )
+    old_order_ids = [oid for oid in old_order_ids if oid != order_id]
 
-        cur.execute(
-            f"""
-            DELETE FROM orders
-            WHERE id IN ({",".join(["%s"] * len(old_order_ids))})
-            """,
-            tuple(old_order_ids)
-        )
+    if old_order_ids:
+        try:
+            cur.execute(
+                f"""
+                DELETE FROM order_items
+                WHERE order_id IN ({",".join(["%s"] * len(old_order_ids))})
+                """,
+                tuple(old_order_ids)
+            )
 
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        cur.close()
-        return
+            cur.execute(
+                f"""
+                DELETE FROM orders
+                WHERE id IN ({",".join(["%s"] * len(old_order_ids))})
+                """,
+                tuple(old_order_ids)
+            )
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            cur.close()
+            return
 
     # ==================================================
     # 6️⃣ PAYSTACK
@@ -2845,7 +2843,7 @@ def pay_all_unpaid(call):
         return
 
     # ==================================================
-    # 7️⃣ FIXED TITLE DISPLAY (GROUP SAFE)
+    # 7️⃣ DISPLAY
     # ==================================================
     unique_titles = [
         i["title"]

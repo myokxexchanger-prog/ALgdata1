@@ -3127,16 +3127,20 @@ def all_callbacks(c):
     uid = str(c.from_user.id)   # ✅ amfani da STRING (Postgres / MySQL safe)
     data = c.data
 
+   
+
     # =====================
-    # REMOVE FROM CART
+    # REMOVE FROM CART (SAFE)
     # =====================
     if data.startswith("removecart:"):
         raw = data.split(":", 1)[1]
         ids = [i for i in raw.split("_") if i.isdigit()]
 
         if not ids:
-            bot.answer_callback_query(c.id, "❌ Nothing to remove")
+            bot.answer_callback_query(c.id, "❌ No item selected")
             return
+
+        removed = 0
 
         try:
             cur = conn.cursor()
@@ -3145,6 +3149,8 @@ def all_callbacks(c):
                     "DELETE FROM cart WHERE user_id=%s AND item_id=%s",
                     (uid, item_id)
                 )
+                removed += cur.rowcount   # 🔥 mu san ko an goge wani abu
+
             conn.commit()
             cur.close()
         except Exception:
@@ -3152,7 +3158,15 @@ def all_callbacks(c):
             bot.answer_callback_query(c.id, "❌ Remove failed")
             return
 
-        # 🔁 EDIT CART MESSAGE
+        # 🚫 IDAN BABU ABIN DA AKA GOGE
+        if removed == 0:
+            bot.answer_callback_query(
+                c.id,
+                "⚠️ Wannan item din baya cikin cart"
+            )
+            return
+
+        # 🔁 EDIT CART MESSAGE (ko empty)
         msg_id = cart_sessions.get(uid)
         if msg_id:
             text, kb = build_cart_view(uid)
@@ -3167,11 +3181,11 @@ def all_callbacks(c):
             except:
                 pass
 
-        bot.answer_callback_query(c.id, "🗑 Removed")
+        bot.answer_callback_query(c.id, "🗑 Item removed")
         return
 
     # =====================
-    # CLEAR CART
+    # CLEAR CART (SAFE)
     # =====================
     if data == "clearcart":
         try:
@@ -3180,6 +3194,7 @@ def all_callbacks(c):
                 "DELETE FROM cart WHERE user_id=%s",
                 (uid,)
             )
+            removed = cur.rowcount   # 🔥 muhimmanci sosai
             conn.commit()
             cur.close()
         except Exception:
@@ -3187,7 +3202,15 @@ def all_callbacks(c):
             bot.answer_callback_query(c.id, "❌ Clear failed")
             return
 
-        # 🔁 EDIT CART MESSAGE
+        # 🚫 IDAN CART TUNI EMPTY
+        if removed == 0:
+            bot.answer_callback_query(
+                c.id,
+                "⚠️ Cart dinka tuni babu komai"
+            )
+            return
+
+        # 🔁 EDIT CART MESSAGE (zai nuna empty cart text)
         msg_id = cart_sessions.get(uid)
         if msg_id:
             text, kb = build_cart_view(uid)
@@ -3204,6 +3227,8 @@ def all_callbacks(c):
 
         bot.answer_callback_query(c.id, "🧹 Cart cleared")
         return
+
+
 
 
 

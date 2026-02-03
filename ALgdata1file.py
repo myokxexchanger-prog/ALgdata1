@@ -3662,13 +3662,35 @@ def all_callbacks(c):
     # REMOVE SINGLE UNPAID
     # =====================
     if data.startswith("remove_unpaid:"):
-        oid = data.split(":")[1]
+        oid = data.split(":", 1)[1]
 
-        conn.execute(
-            "DELETE FROM orders WHERE id=%s AND user_id=%s AND paid=0",
-            (oid, uid)
-        )
-        conn.commit()
+        try:
+            # 1️⃣ goge order_items farko
+            conn.execute(
+                """
+                DELETE FROM order_items
+                WHERE order_id IN (
+                    SELECT id FROM orders
+                    WHERE id=%s AND user_id=%s AND paid=0
+                )
+                """,
+                (oid, uid)
+            )
+
+            # 2️⃣ goge order
+            conn.execute(
+                """
+                DELETE FROM orders
+                WHERE id=%s AND user_id=%s AND paid=0
+                """,
+                (oid, uid)
+            )
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            bot.answer_callback_query(c.id, "❌ Failed to remove")
+            return
 
         text, kb = build_unpaid_orders_view(uid, page=0)
         bot.edit_message_text(
@@ -3678,7 +3700,50 @@ def all_callbacks(c):
             reply_markup=kb,
             parse_mode="HTML"
         )
-        bot.answer_callback_query(c.id, "❌ Removed order")
+        bot.answer_callback_query(c.id, "❌ Order removed")
+        return
+
+    # =====================
+    # DELETE ALL UNPAID
+    # =====================
+    if data == "delete_unpaid":
+        try:
+            # 1️⃣ goge order_items na unpaid orders
+            conn.execute(
+                """
+                DELETE FROM order_items
+                WHERE order_id IN (
+                    SELECT id FROM orders
+                    WHERE user_id=%s AND paid=0
+                )
+                """,
+                (uid,)
+            )
+
+            # 2️⃣ goge orders
+            conn.execute(
+                """
+                DELETE FROM orders
+                WHERE user_id=%s AND paid=0
+                """,
+                (uid,)
+            )
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            bot.answer_callback_query(c.id, "❌ Failed to delete")
+            return
+
+        text, kb = build_unpaid_orders_view(uid, page=0)
+        bot.edit_message_text(
+            chat_id=uid,
+            message_id=c.message.message_id,
+            text=text,
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+        bot.answer_callback_query(c.id, "🗑 Duk an goge")
         return
 
     # ===============================
@@ -3701,27 +3766,6 @@ def all_callbacks(c):
             parse_mode="HTML"
         )
         bot.answer_callback_query(c.id)
-        return
-
-    # =====================
-    # DELETE ALL UNPAID
-    # =====================
-    if data == "delete_unpaid":
-        conn.execute(
-            "DELETE FROM orders WHERE user_id=%s AND paid=0",
-            (uid,)
-        )
-        conn.commit()
-
-        text, kb = build_unpaid_orders_view(uid, page=0)
-        bot.edit_message_text(
-            chat_id=uid,
-            message_id=c.message.message_id,
-            text=text,
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-        bot.answer_callback_query(c.id, "🗑 Duk an goge")
         return
 
     # =====================

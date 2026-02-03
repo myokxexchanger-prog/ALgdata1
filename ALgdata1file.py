@@ -2691,141 +2691,166 @@ Tura <b>/sendall</b> domin a sake tura items.""",
         ADMIN_SUPPORT.pop(m.from_user.id, None)
 
 import uuid
+from psycopg2.extras import RealDictCursor
 
-# ========= PAY ALL UNPAID (GROUPITEM-LIKE | SAFE | CLEAN) =========
+# ========= PAY ALL UNPAID (SAFE | GROUP-AWARE | CLEAN) =========
 @bot.callback_query_handler(func=lambda c: c.data == "payall:")
 def pay_all_unpaid(call):
     uid = call.from_user.id
+    user_name = call.from_user.first_name or "Customer"
     bot.answer_callback_query(call.id)
 
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
     # ==================================================
-    # 1️⃣ FETCH ALL UNPAID ITEMS
+    # 1️⃣ FETCH ALL UNPAID ORDER ITEMS (EXISTING ORDERS)
     # ==================================================
-    cur.execute(
-        """
-        SELECT
-            i.id,
-            i.title,
-            i.price,
-            i.file_id,
-            i.group_key
-        FROM orders o
-        JOIN order_items oi ON oi.order_id = o.id
-        JOIN items i ON i.id = oi.item_id
-        WHERE o.user_id=%s AND o.paid=0
-        """,
-        (uid,)
-    )
-    rows = cur.fetchall()
+    try:
+        cur.execute(
+            """
+            SELECT
+                o.id        AS old_order_id,
+                i.id        AS item_id,
+                i.title,
+                i.price,
+                i.file_id,
+                i.group_key
+            FROM orders o
+            JOIN order_items oi ON oi.order_id = o.id
+            JOIN items i ON i.id = oi.item_id
+            WHERE o.user_id=%s
+              AND o.paid=0
+            """,
+            (uid,)
+        )
+        rows = cur.fetchall()
+    except Exception:
+        cur.close()
+        return
 
     if not rows:
-        bot.send_message(uid, "❌ No unpaid items found.")
+        bot.send_message(uid, "❌ No unpaid orders found.")
+        cur.close()
         return
 
     # ==================================================
-    # 2️⃣ FILTER (LIKE GROUPITEM)
+    # 2️⃣ FILTER VALID ITEMS (LIKE GROUPITEM)
     # ==================================================
     items = [
-        {
-            "item_id": r[0],
-            "title": r[1],
-            "price": int(r[2] or 0),
-            "file_id": r[3],
-            "group_key": r[4]
-        }
-        for r in rows
-        if r[3] and int(r[2] or 0) > 0
+        r for r in rows
+        if r["file_id"] and int(r["price"] or 0) > 0
     ]
 
     if not items:
         bot.send_message(uid, "❌ No payable items.")
+        cur.close()
         return
+
+    item_ids = list({i["item_id"] for i in items})
 
     # ==================================================
     # 3️⃣ OWNERSHIP PROTECTION
     # ==================================================
-    placeholders = ",".join(["%s"] * len(items))
-    cur.execute(
-        f"""
-        SELECT 1
-        FROM user_movies
-        WHERE user_id=%s AND item_id IN ({placeholders})
-        LIMIT 1
-        """,
-        [uid] + [i["item_id"] for i in items]
-    )
-    owned = cur.fetchone()
+    try:
+        cur.execute(
+            f"""
+            SELECT 1
+            FROM user_movies
+            WHERE user_id=%s
+              AND item_id IN ({",".join(["%s"] * len(item_ids))})
+            LIMIT 1
+            """,
+            (uid, *item_ids)
+        )
+        owned = cur.fetchone()
+    except Exception:
+        cur.close()
+        return
 
     if owned:
         bot.send_message(uid, "✅ You already own some of these items.")
+        cur.close()
         return
 
     # ==================================================
-    # 4️⃣ GROUP-AWARE TOTAL
+    # 4️⃣ GROUP_KEY PRICING (CORE LOGIC)
     # ==================================================
     groups = {}
-
     for i in items:
         key = i["group_key"] or f"single_{i['item_id']}"
         if key not in groups:
             groups[key] = {
-                "price": i["price"],
+                "price": int(i["price"]),
                 "items": []
             }
         groups[key]["items"].append(i)
 
     total_amount = sum(g["price"] for g in groups.values())
     if total_amount <= 0:
-        bot.send_message(uid, "❌ Invalid amount.")
+        bot.send_message(uid, "❌ Invalid total amount.")
+        cur.close()
         return
 
     # ==================================================
-    # 5️⃣ CREATE ONE NEW ORDER
+    # 5️⃣ CREATE ONE COLLECTOR ORDER (PAYALL ORDER)
     # ==================================================
     order_id = str(uuid.uuid4())
 
-    cur.execute(
-        """
-        INSERT INTO orders (id, user_id, amount, paid)
-        VALUES (%s, %s, %s, 0)
-        """,
-        (order_id, uid, total_amount)
-    )
+    try:
+        cur.execute(
+            """
+            INSERT INTO orders (id, user_id, amount, paid)
+            VALUES (%s, %s, %s, 0)
+            """,
+            (order_id, uid, total_amount)
+        )
 
-    # ==================================================
-    # 6️⃣ INSERT ORDER ITEMS (GROUP PRICE)
-    # ==================================================
-    for g in groups.values():
-        for i in g["items"]:
-            cur.execute(
-                """
-                INSERT INTO order_items
-                (order_id, item_id, file_id, price)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (
-                    order_id,
-                    i["item_id"],
-                    i["file_id"],
-                    g["price"]
+        for g in groups.values():
+            for i in g["items"]:
+                cur.execute(
+                    """
+                    INSERT INTO order_items
+                    (order_id, item_id, file_id, price)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (
+                        order_id,
+                        i["item_id"],
+                        i["file_id"],
+                        g["price"]
+                    )
                 )
-            )
 
-    conn.commit()
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        cur.close()
+        return
 
     # ==================================================
-    # 7️⃣ PAYSTACK
+    # 6️⃣ PAYSTACK
     # ==================================================
     pay_url = create_paystack_payment(
         uid,
         order_id,
         total_amount,
-        "Pay All Orders"
+        "Pay All Unpaid Orders"
     )
 
     if not pay_url:
-        bot.send_message(uid, "❌ Payment error.")
+        cur.close()
         return
+
+    # ==================================================
+    # 7️⃣ FIXED TITLE DISPLAY (GROUP SAFE)
+    # ==================================================
+    unique_titles = [
+        i["title"]
+        for _, i in {
+            (i["group_key"] or f"single_{i['item_id']}"): i
+            for i in items
+        }.items()
+    ]
 
     kb = InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
@@ -2833,9 +2858,14 @@ def pay_all_unpaid(call):
 
     bot.send_message(
         uid,
-        f"""🧺 <b>PAY ALL UNPAID</b>
+        f"""🧺 <b>PAY ALL UNPAID ORDERS</b>
 
-📦 <b>Items:</b> {len(items)}
+👤 <b>Your name is:</b> {user_name}
+
+🎬 <b>Items:</b>
+{", ".join(unique_titles)}
+
+📦 <b>Total Items:</b> {len(item_ids)}
 🗂 <b>Groups:</b> {len(groups)}
 💵 <b>Total:</b> ₦{total_amount}
 
@@ -2845,6 +2875,8 @@ def pay_all_unpaid(call):
         parse_mode="HTML",
         reply_markup=kb
     )
+
+    cur.close()
 
 
 # ===================== BUY ALL (CUSTOM IDS | PAYSTACK) =====================

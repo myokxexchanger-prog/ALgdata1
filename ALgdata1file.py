@@ -3124,8 +3124,9 @@ def all_callbacks(c):
     data = c.data
 
 
+  
     # =====================
-    # CHECKOUT
+    # CHECKOUT (GROUPITEM LOGIC)
     # =====================
     if data == "checkout":
 
@@ -3149,7 +3150,7 @@ def all_callbacks(c):
             except ValueError:
                 continue
 
-            # 🔎 OWNERSHIP CHECK
+            # 🔎 CHECK OWNERSHIP
             cur = conn.cursor()
             cur.execute(
                 "SELECT 1 FROM user_movies WHERE user_id=%s AND item_id=%s LIMIT 1",
@@ -3169,7 +3170,7 @@ def all_callbacks(c):
 
             if key not in groups:
                 groups[key] = {
-                    "price": int(price),
+                    "price": int(price or 0),   # ✅ group price once
                     "items": [],
                     "title": title
                 }
@@ -3177,12 +3178,12 @@ def all_callbacks(c):
             groups[key]["items"].append({
                 "item_id": item_id,
                 "file_id": file_id,
-                "price": int(price),
+                "price": int(price or 0),
                 "title": title
             })
 
         # =====================
-        # ALL OWNED
+        # ALL ITEMS ALREADY OWNED
         # =====================
         if owned_count > 0 and not groups:
             kb = InlineKeyboardMarkup()
@@ -3200,12 +3201,17 @@ def all_callbacks(c):
             return
 
         # =====================
-        # CALCULATE TOTAL
+        # CALCULATE TOTAL (GROUP PRICE)
         # =====================
         total = sum(g["price"] for g in groups.values())
         if total <= 0:
             bot.answer_callback_query(c.id, "⚠️ Nothing payable")
             return
+
+        # =====================
+        # COUNT FILMS (GROUPITEM STYLE)
+        # =====================
+        film_count = sum(len(g["items"]) for g in groups.values())
 
         # =====================
         # CREATE ORDER
@@ -3221,7 +3227,7 @@ def all_callbacks(c):
                 for i in g["items"]:
                     cur.execute(
                         """
-                        INSERT INTO order_items (order_id,item_id,file_id,price)
+                        INSERT INTO order_items (order_id, item_id, file_id, price)
                         VALUES (%s,%s,%s,%s)
                         """,
                         (order_id, i["item_id"], i["file_id"], i["price"])
@@ -3231,11 +3237,12 @@ def all_callbacks(c):
             cur.close()
         except Exception as e:
             conn.rollback()
+            print("❌ CHECKOUT DB ERROR:", e)
             bot.answer_callback_query(c.id, "❌ Checkout failed")
             return
 
         # =====================
-        # 🧹 CLEAR CART (FIXED)
+        # 🧹 CLEAR CART
         # =====================
         try:
             cur = conn.cursor()
@@ -3256,7 +3263,7 @@ def all_callbacks(c):
             uid,
             order_id,
             total,
-            f"{len(groups)} item(s)"
+            f"{film_count} film(s)"
         )
 
         if not pay_url:
@@ -3266,7 +3273,10 @@ def all_callbacks(c):
         # =====================
         # FORMAT MESSAGE
         # =====================
-        unique_titles = [g["title"] for g in groups.values()]
+        unique_titles = [
+            g["title"]
+            for g in groups.values()
+        ]
 
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
@@ -3279,7 +3289,7 @@ def all_callbacks(c):
 🎬 <b>You will buy:</b>
 {", ".join(unique_titles)}
 
-📦 Films: {len(groups)}
+📦 Films: {film_count}
 💵 Total amount: ₦{total}
 
 👤 <b>Your name is:</b> {user_name}
@@ -3291,8 +3301,7 @@ def all_callbacks(c):
         )
 
         bot.answer_callback_query(c.id)
-        return
-    
+        return   
     
     # =====================
     # REMOVE FROM CART

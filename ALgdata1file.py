@@ -2693,7 +2693,7 @@ Tura <b>/sendall</b> domin a sake tura items.""",
 import uuid
 from psycopg2.extras import RealDictCursor
 
-# ========= PAY ALL UNPAID (SAFE | GROUP-AWARE | CLEAN) =========
+# ========= PAY ALL UNPAID (SAFE | GROUP-AWARE | CLEAN | FIXED) =========
 @bot.callback_query_handler(func=lambda c: c.data == "payall:")
 def pay_all_unpaid(call):
     uid = call.from_user.id
@@ -2747,6 +2747,7 @@ def pay_all_unpaid(call):
         return
 
     item_ids = list({i["item_id"] for i in items})
+    old_order_ids = list({i["old_order_id"] for i in items})
 
     # ==================================================
     # 3️⃣ OWNERSHIP PROTECTION
@@ -2820,6 +2821,32 @@ def pay_all_unpaid(call):
                         g["price"]
                     )
                 )
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        cur.close()
+        return
+
+    # ==================================================
+    # 🔥 DELETE OLD UNPAID ORDERS (CLEAN FIX)
+    # ==================================================
+    try:
+        cur.execute(
+            f"""
+            DELETE FROM order_items
+            WHERE order_id IN ({",".join(["%s"] * len(old_order_ids))})
+            """,
+            tuple(old_order_ids)
+        )
+
+        cur.execute(
+            f"""
+            DELETE FROM orders
+            WHERE id IN ({",".join(["%s"] * len(old_order_ids))})
+            """,
+            tuple(old_order_ids)
+        )
 
         conn.commit()
     except Exception:

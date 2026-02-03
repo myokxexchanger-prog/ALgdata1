@@ -3117,7 +3117,7 @@ def all_callbacks(c):
     # =====================
     if data.startswith("removecart:"):
         raw = data.split(":", 1)[1]
-        ids = [int(i) for i in raw.split("_") if i.isdigit()]
+        ids = [i for i in raw.split("_") if i.isdigit()]
 
         if not ids:
             bot.answer_callback_query(c.id, "❌ Nothing to remove")
@@ -3138,7 +3138,13 @@ def all_callbacks(c):
         if msg_id:
             text, kb = build_cart_view(uid)
             try:
-                bot.edit_message_text(uid, msg_id, text, reply_markup=kb, parse_mode="HTML")
+                bot.edit_message_text(
+                    chat_id=uid,
+                    message_id=msg_id,
+                    text=text,
+                    reply_markup=kb,
+                    parse_mode="HTML"
+                )
             except:
                 pass
 
@@ -3150,7 +3156,10 @@ def all_callbacks(c):
     # =====================
     if data == "clearcart":
         try:
-            conn.execute("DELETE FROM cart WHERE user_id=%s", (uid,))
+            conn.execute(
+                "DELETE FROM cart WHERE user_id=%s",
+                (uid,)
+            )
             conn.commit()
         except Exception:
             conn.rollback()
@@ -3161,7 +3170,13 @@ def all_callbacks(c):
         if msg_id:
             text, kb = build_cart_view(uid)
             try:
-                bot.edit_message_text(uid, msg_id, text, reply_markup=kb, parse_mode="HTML")
+                bot.edit_message_text(
+                    chat_id=uid,
+                    message_id=msg_id,
+                    text=text,
+                    reply_markup=kb,
+                    parse_mode="HTML"
+                )
             except:
                 pass
 
@@ -3169,11 +3184,11 @@ def all_callbacks(c):
         return
 
     # =====================
-    # ADD TO CART (FULL FIX)
+    # ADD TO CART (STRICT DB SAFE)
     # =====================
     if data.startswith("addcartdm:"):
         raw = data.split(":", 1)[1]
-        item_ids = [int(i) for i in raw.split("_") if i.isdigit()]
+        item_ids = [i for i in raw.split("_") if i.isdigit()]
 
         if not item_ids:
             bot.answer_callback_query(c.id, "❌ Invalid item")
@@ -3184,7 +3199,7 @@ def all_callbacks(c):
 
         try:
             for item_id in item_ids:
-                # 🔒 tabbatar item yana nan
+                # 🔎 check item exists
                 item = conn.execute(
                     "SELECT id FROM items WHERE id=%s",
                     (item_id,)
@@ -3197,6 +3212,7 @@ def all_callbacks(c):
                     "SELECT 1 FROM cart WHERE user_id=%s AND item_id=%s",
                     (uid, item_id)
                 ).fetchone()
+
                 if exists:
                     skipped += 1
                     continue
@@ -3208,7 +3224,7 @@ def all_callbacks(c):
                 added += 1
 
             conn.commit()
-        except Exception:
+        except Exception as e:
             conn.rollback()
             bot.answer_callback_query(c.id, "❌ Add to cart failed")
             return
@@ -3222,7 +3238,7 @@ def all_callbacks(c):
         return
 
     # =====================
-    # CHECKOUT (OWNER SAFE)
+    # CHECKOUT (OWNER SAFE + STRING UID)
     # =====================
     if data == "checkout":
         rows = get_cart(uid)
@@ -3235,8 +3251,7 @@ def all_callbacks(c):
         items = []
 
         for item_id, title, price, file_id, group_key, owner_id in rows:
-            # 🔐 OWNER CHECK
-            if owner_id == uid:
+            if str(owner_id) == uid:   # 🔐 owner check FIXED
                 continue
 
             if not file_id or not price:
@@ -3296,6 +3311,8 @@ def all_callbacks(c):
 
         bot.answer_callback_query(c.id)
         return
+
+   
     # ================= MY MOVIES =================
     if data == "my_movies":
         kb = InlineKeyboardMarkup()

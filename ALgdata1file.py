@@ -1943,8 +1943,10 @@ def handle_forwarded_post(m):
 def show_cart(chat_id, user_id):
     rows = get_cart(user_id)
 
+    kb = InlineKeyboardMarkup()
+
+    # ===== IDAN CART EMPTY =====
     if not rows:
-        kb = InlineKeyboardMarkup()
         kb.row(
             InlineKeyboardButton(
                 "🏘Our Channel",
@@ -1955,18 +1957,20 @@ def show_cart(chat_id, user_id):
         s = tr_user(
             user_id,
             "cart_empty",
-            default="You haven’t added any items to your cart yet,\n\n Check our channel to buy movie."
+            default="You haven’t added any items to your cart yet,\n\nCheck our channel to buy movie."
         )
-        bot.send_message(chat_id, s, reply_markup=kb)
+
+        msg = bot.send_message(chat_id, s, reply_markup=kb)
+
+        # 🔑 MUHIMMI: adana message_id
+        cart_sessions[str(user_id)] = msg.message_id
         return
 
-    text_lines = ["This is your cart list."]
-    kb = InlineKeyboardMarkup()
-
-    total = 0  # ✅ total ɗaya kacal
+    text_lines = ["🛒 <b>Your cart list.</b>"]
+    total = 0
 
     # ===============================
-    # HADA ITEMS TA GROUP_KEY
+    # GROUP ITEMS BY group_key
     # ===============================
     grouped = {}
 
@@ -1983,19 +1987,19 @@ def show_cart(chat_id, user_id):
         grouped[key]["ids"].append(movie_id)
 
     # ===============================
-    # DISPLAY (SINGLE + GROUP)
+    # DISPLAY ITEMS
     # ===============================
     for g in grouped.values():
         ids = g["ids"]
         title = g["title"]
         price = g["price"]
 
-        total += price  # ✅ ba ya ninkawa
+        total += price
 
-        if price == 0:
-            text_lines.append(f"• {title} — 📦 Series")
-        else:
+        if price > 0:
             text_lines.append(f"• {title} — ₦{price}")
+        else:
+            text_lines.append(f"• {title} — 📦 Series")
 
         ids_str = "_".join(str(i) for i in ids)
 
@@ -2006,40 +2010,32 @@ def show_cart(chat_id, user_id):
             )
         )
 
-    text_lines.append(f"\nTotal: ₦{total}")
-
-    # ===============================
-    # CREDIT INFO (KAMAR YADDA YAKE)
-    # ===============================
-    total_available, credit_rows = get_credits_for_user(user_id)
-    credit_info = ""
-
-    if total_available > 0:
-        credit_info = (
-            f"\n\nNote: Available referral credit: N{total_available}. "
-            f"It will be automatically applied at checkout."
-        )
+    text_lines.append(f"\n<b>Total:</b> ₦{total}")
 
     # ===============================
     # ACTION BUTTONS
     # ===============================
-    kb.add(
+    kb.row(
         InlineKeyboardButton("🧹 Clear Cart", callback_data="clearcart"),
         InlineKeyboardButton("💵 CHECKOUT", callback_data="checkout")
     )
 
     kb.row(
-        
-        InlineKeyboardButton("🏘Our Channel", url=f"https://t.me/{CHANNEL.lstrip('@')}")
+        InlineKeyboardButton(
+            "🏘Our Channel",
+            url=f"https://t.me/{CHANNEL.lstrip('@')}"
+        )
     )
 
-  
-
-    bot.send_message(
+    msg = bot.send_message(
         chat_id,
-        "\n".join(text_lines) + credit_info,
-        reply_markup=kb
+        "\n".join(text_lines),
+        reply_markup=kb,
+        parse_mode="HTML"
     )
+
+    # 🔑 MUHIMMI: adana message_id
+    cart_sessions[str(user_id)] = msg.message_id
 
 
 

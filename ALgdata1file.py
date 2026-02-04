@@ -3261,10 +3261,25 @@ def all_callbacks(c):
 
 
     # ===============================
+    # DEBUG (SEND TO ADMIN TELEGRAM)
+    # ===============================
+    try:
+        bot.send_message(
+            ADMIN_ID,
+            "🧪 CALLBACK DEBUG\n"
+            f"UID: {uid} ({type(uid)})\n"
+            f"ADMIN_ID: {ADMIN_ID} ({type(ADMIN_ID)})\n"
+            f"UID == ADMIN_ID ?: {uid == ADMIN_ID}\n"
+            f"CALLBACK DATA: {data}"
+        )
+    except Exception as e:
+        pass
+
+    # ===============================
     # SERIES MODE (ADMIN ONLY)
     # ===============================
     if data == "groupitems":
-        if uid not in ADMINS:
+        if uid != ADMIN_ID:
             bot.answer_callback_query(c.id, "Ba izini.")
             return
 
@@ -3281,9 +3296,10 @@ def all_callbacks(c):
             parse_mode="HTML"
         )
 
-        bot.answer_callback_query(c.id)
+        bot.answer_callback_query(c.id, "✅ Series Mode ON")
         return
 
+    
    
     # =====================
     # CHECKOUT (GROUPITEM LOGIC)

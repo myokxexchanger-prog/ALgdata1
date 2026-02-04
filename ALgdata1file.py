@@ -3264,7 +3264,7 @@ def all_callbacks(c):
     # SERIES MODE (ADMIN ONLY)
     # ===============================
     if data == "groupitems":
-        if uid != ADMIN_ID:
+        if uid not in ADMINS:
             bot.answer_callback_query(c.id, "Ba izini.")
             return
 
@@ -3284,9 +3284,7 @@ def all_callbacks(c):
         bot.answer_callback_query(c.id)
         return
 
-
-
-  
+   
     # =====================
     # CHECKOUT (GROUPITEM LOGIC)
     # =====================

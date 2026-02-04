@@ -1885,7 +1885,20 @@ def cancel_order_handler(c):
 
 
 # ================== END RUKUNI B ==================
+@bot.message_handler(commands=["sales"])
+def admin_sales_command(msg):
+    if msg.from_user.id != ADMIN_ID:
+        return
 
+    now = _ng_now()
+    since = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    send_sales_report(
+        since,
+        f"📊 MONTHLY SALES REPORT ({now.strftime('%B %Y')})",
+        ADMIN_ID,
+        silent_if_empty=False
+    )
 
 # --- Added callback handler for in-bot "View All Movies" buttons ---
 @bot.callback_query_handler(func=lambda c: c.data in ("view_all_movies","viewall"))
@@ -4483,124 +4496,100 @@ def file_upload(message):
 
 # ================== SALES REPORT SYSTEM (ITEMS BASED – POSTGRES FIXED) ==================
 
-
-# ================== SALES REPORT SYSTEM (ITEMS BASED – POSTGRES FINAL) ==================
-
 import threading
 import time
 from datetime import datetime, timedelta
+from psycopg2.extras import RealDictCursor
 
 
-# ================= TIME HELPERS =================
+# ================= TIME =================
 def _ng_now():
-    # Nigeria time (UTC+1)
     return datetime.utcnow() + timedelta(hours=1)
 
-
 def _last_day_of_month(dt):
-    next_month = dt.replace(day=28) + timedelta(days=4)
-    return (next_month - timedelta(days=next_month.day)).day
+    nxt = dt.replace(day=28) + timedelta(days=4)
+    return (nxt - timedelta(days=nxt.day)).day
 
 
-# ================= CORE REPORT BUILDER =================
-def _build_sales_report(from_date, title):
-    rows = conn.execute(
+# ================= ONE REPORT ENGINE =================
+def send_sales_report(since_dt, title, target_chat_id, silent_if_empty=False):
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute(
         """
         SELECT
-            oi.item_id,
-            COUNT(*) AS qty,
-            SUM(COALESCE(oi.price,0)) AS total
+            COALESCE(i.group_key, 'single_' || i.id) AS grp,
+            MIN(i.title) AS title,
+            COUNT(DISTINCT o.id) AS orders,
+            SUM(oi.price) AS total
         FROM orders o
         JOIN order_items oi ON oi.order_id = o.id
-        WHERE o.paid = TRUE
+        JOIN items i ON i.id = oi.item_id
+        WHERE o.paid = 1
           AND o.created_at >= %s
-        GROUP BY oi.item_id
+        GROUP BY grp
+        ORDER BY total DESC
         """,
-        (from_date,)
-    ).fetchall()
+        (since_dt,)
+    )
 
+    rows = cur.fetchall()
+    cur.close()
+
+    # ===== NO SALES =====
     if not rows:
-        return f"{title}\n\nBabu siyarwa."
+        if not silent_if_empty:
+            bot.send_message(
+                target_chat_id,
+                f"{title}\n\n❌ No sales yet."
+            )
+        return
 
     msg = f"{title}\n\n"
-    grand = 0
+    total_orders = 0
+    grand_total = 0
 
-    for row in rows:
-        item_id = row["item_id"]
-        qty = row["qty"]
-        total = int(row["total"] or 0)
+    for r in rows:
+        qty = r["orders"]
+        amount = int(r["total"] or 0)
 
-        item = conn.execute(
-            "SELECT title FROM items WHERE id=%s",
-            (item_id,)
-        ).fetchone()
+        total_orders += qty
+        grand_total += amount
 
-        name = item["title"] if item else f"ITEM {item_id}"
-        grand += total
+        msg += f"• {r['title']} ({qty} sales) — ₦{amount:,}\n"
 
-        msg += f"• {name} ({qty}) — ₦{total}\n"
+    msg += (
+        "\n──────────────────\n"
+        f"🧾 Total Orders: {total_orders}\n"
+        f"💰 Total Revenue: ₦{grand_total:,}\n"
+        f"🕒 {_ng_now().strftime('%d %b %Y, %H:%M (NG)')}"
+    )
 
-    msg += f"\n💰 Total: ₦{grand}"
-    return msg
-
-
-# ================= WEEKLY REPORT =================
-def send_weekly_sales_report():
-    try:
-        if not PAYMENT_NOTIFY_GROUP:
-            return
-
-        now = _ng_now()
-        week_ago = now - timedelta(days=7)
-
-        msg = _build_sales_report(
-            week_ago,
-            "📊 WEEKLY SALES REPORT"
-        )
-
-        bot.send_message(PAYMENT_NOTIFY_GROUP, msg)
-
-    except Exception as e:
-        print("weekly report error:", e)
+    bot.send_message(target_chat_id, msg)
 
 
-# ================= MONTHLY REPORT =================
-def send_monthly_sales_report():
-    try:
-        if not PAYMENT_NOTIFY_GROUP:
-            return
-
-        now = _ng_now()
-        first_day = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-        msg = _build_sales_report(
-            first_day,
-            "📊 MONTHLY SALES REPORT"
-        )
-
-        bot.send_message(PAYMENT_NOTIFY_GROUP, msg)
-
-    except Exception as e:
-        print("monthly report error:", e)
+# ================= AUTOMATIC WEEKLY (GROUP) =================
+def weekly_sales():
+    since = _ng_now() - timedelta(days=7)
+    send_sales_report(
+        since,
+        "📊 WEEKLY SALES REPORT",
+        PAYMENT_NOTIFY_GROUP,
+        silent_if_empty=True
+    )
 
 
-# ================= /sales COMMAND (CURRENT MONTH) =================
-@bot.message_handler(commands=["sales"])
-def sales_command_handler(m):
-    try:
-        now = _ng_now()
-        first_day = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+# ================= AUTOMATIC MONTHLY (GROUP) =================
+def monthly_sales():
+    now = _ng_now()
+    since = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-        msg = _build_sales_report(
-            first_day,
-            "📊 SALES REPORT (THIS MONTH)"
-        )
-
-        bot.reply_to(m, msg)
-
-    except Exception as e:
-        bot.reply_to(m, "❌ Error generating sales report")
-        print("sales command error:", e)
+    send_sales_report(
+        since,
+        f"📊 MONTHLY SALES REPORT ({now.strftime('%B %Y')})",
+        PAYMENT_NOTIFY_GROUP,
+        silent_if_empty=True
+    )
 
 
 # ================= SCHEDULER =================
@@ -4609,46 +4598,25 @@ def sales_report_scheduler():
     monthly_sent = False
 
     while True:
-        try:
-            now = _ng_now()
+        now = _ng_now()
 
-            # WEEKLY — Friday night
-            if now.weekday() == 4 and now.hour == 23 and now.minute >= 50:
-                if not weekly_sent:
-                    send_weekly_sales_report()
-                    weekly_sent = True
-            else:
-                weekly_sent = False
+        # Friday 23:50
+        if now.weekday() == 4 and now.hour == 23 and now.minute == 50:
+            if not weekly_sent:
+                weekly_sales()
+                weekly_sent = True
+        else:
+            weekly_sent = False
 
-            # MONTHLY — last day of month
-            if now.day == _last_day_of_month(now) and now.hour == 23 and now.minute >= 50:
-                if not monthly_sent:
-                    send_monthly_sales_report()
-                    monthly_sent = True
-            else:
-                monthly_sent = False
+        # Last day of month 23:50
+        if now.day == _last_day_of_month(now) and now.hour == 23 and now.minute == 50:
+            if not monthly_sent:
+                monthly_sales()
+                monthly_sent = True
+        else:
+            monthly_sent = False
 
-            time.sleep(20)
-
-        except Exception as e:
-            print("scheduler crash:", e)
-            time.sleep(60)
-
-
-# ================= START SCHEDULER =================
-def start_sales_scheduler():
-    t = threading.Thread(
-        target=sales_report_scheduler,
-        daemon=True
-    )
-    t.start()
-    print("✅ Sales report scheduler started")
-
-
-# ⚠️ KIRA WANNAN A KASAN FILE
-start_sales_scheduler()
-
-
+        time.sleep(20)
 
 
 

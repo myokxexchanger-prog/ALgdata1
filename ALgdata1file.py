@@ -543,8 +543,6 @@ def telegram_webhook():
     bot.process_new_updates([update])
     return "OK", 200
 
-
-
 @bot.callback_query_handler(func=lambda c: c.data.startswith("deliver:"))
 def deliver_items(call):
     user_id = call.from_user.id
@@ -557,14 +555,15 @@ def deliver_items(call):
 
     cur = conn.cursor()
 
-    # 1️⃣ CHECK ORDER (PAID)
+    # 1️⃣ CHECK ORDER (PAID - BOOLEAN SAFE)
     cur.execute(
         "SELECT paid FROM orders WHERE id=%s AND user_id=%s",
         (order_id, user_id)
     )
     order = cur.fetchone()
 
-    if not order or order[0] != 1:
+    # 🔧 FIX: PostgreSQL BOOLEAN CHECK
+    if not order or order[0] is not True:
         cur.close()
         bot.answer_callback_query(call.id, "❌ Your payment has not been confirmed.")
         return
@@ -664,6 +663,8 @@ def deliver_items(call):
     )
 
     send_feedback_prompt(user_id, order_id)
+
+
 
  #=========================================================
 # ========= HARD START HOWTO (DEEPLINK LOCK) ===============

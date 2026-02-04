@@ -730,7 +730,39 @@ def deliver_items(call):
 
     send_feedback_prompt(user_id, order_id)
 
+@bot.callback_query_handler(func=lambda c: c.data == "groupitems")
+def series_callback(c):
+    uid = c.from_user.id
+    data = c.data
 
+    # DEBUG — wannan ZAI TURA SAKO
+    bot.send_message(
+        ADMIN_ID,
+        "🧪 SERIES CALLBACK DEBUG\n"
+        f"UID: {uid} ({type(uid)})\n"
+        f"ADMIN_ID: {ADMIN_ID} ({type(ADMIN_ID)})\n"
+        f"EQUAL?: {uid == ADMIN_ID}\n"
+        f"DATA: {data}"
+    )
+
+    if uid != ADMIN_ID:
+        bot.answer_callback_query(c.id, "Ba izini.")
+        return
+
+    series_sessions[uid] = {
+        "files": [],
+        "stage": "collect"
+    }
+
+    bot.send_message(
+        uid,
+        "📺 <b>Series Mode ya fara</b>\n\n"
+        "Ka fara turo videos/documents.\n"
+        "Idan ka gama rubuta <b>Done</b>.",
+        parse_mode="HTML"
+    )
+
+    bot.answer_callback_query(c.id, "✅ Series Mode ON")
 
  #=========================================================
 # ========= HARD START HOWTO (DEEPLINK LOCK) ===============
@@ -1059,39 +1091,7 @@ def _start_deeplink_handler(msg):
 
 # ================== END RUKUNI B ==================
 
-@bot.callback_query_handler(func=lambda c: c.data == "groupitems")
-def series_callback(c):
-    uid = c.from_user.id
-    data = c.data
 
-    # DEBUG — wannan ZAI TURA SAKO
-    bot.send_message(
-        ADMIN_ID,
-        "🧪 SERIES CALLBACK DEBUG\n"
-        f"UID: {uid} ({type(uid)})\n"
-        f"ADMIN_ID: {ADMIN_ID} ({type(ADMIN_ID)})\n"
-        f"EQUAL?: {uid == ADMIN_ID}\n"
-        f"DATA: {data}"
-    )
-
-    if uid != ADMIN_ID:
-        bot.answer_callback_query(c.id, "Ba izini.")
-        return
-
-    series_sessions[uid] = {
-        "files": [],
-        "stage": "collect"
-    }
-
-    bot.send_message(
-        uid,
-        "📺 <b>Series Mode ya fara</b>\n\n"
-        "Ka fara turo videos/documents.\n"
-        "Idan ka gama rubuta <b>Done</b>.",
-        parse_mode="HTML"
-    )
-
-    bot.answer_callback_query(c.id, "✅ Series Mode ON")
 
 # --- Added callback handler for in-bot "View All Movies" buttons ---
 @bot.callback_query_handler(func=lambda c: c.data in ("view_all_movies","viewall"))
@@ -3291,45 +3291,6 @@ def all_callbacks(c):
     data = c.data
 
 
-
-    # ===============================
-    # DEBUG (SEND TO ADMIN TELEGRAM)
-    # ===============================
-    try:
-        bot.send_message(
-            ADMIN_ID,
-            "🧪 CALLBACK DEBUG\n"
-            f"UID: {uid} ({type(uid)})\n"
-            f"ADMIN_ID: {ADMIN_ID} ({type(ADMIN_ID)})\n"
-            f"UID == ADMIN_ID ?: {uid == ADMIN_ID}\n"
-            f"CALLBACK DATA: {data}"
-        )
-    except Exception as e:
-        pass
-
-    # ===============================
-    # SERIES MODE (ADMIN ONLY)
-    # ===============================
-    if data == "groupitems":
-        if uid != ADMIN_ID:
-            bot.answer_callback_query(c.id, "Ba izini.")
-            return
-
-        series_sessions[uid] = {
-            "files": [],
-            "stage": "collect"
-        }
-
-        bot.send_message(
-            uid,
-            "📺 <b>Series Mode ya fara</b>\n\n"
-            "Ka fara turo videos/documents.\n"
-            "Idan ka gama rubuta <b>Done</b>.",
-            parse_mode="HTML"
-        )
-
-        bot.answer_callback_query(c.id, "✅ Series Mode ON")
-        return
 
     
    

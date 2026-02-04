@@ -3259,7 +3259,25 @@ def all_callbacks(c):
     data = c.data
 
 
- 
+
+    # ===============================
+    # STRONG DEBUG (ALWAYS SEND)
+    # ===============================
+    try:
+        bot.send_message(
+            int(ADMIN_ID),
+            "🧪🔥 CALLBACK FULL DEBUG\n\n"
+            f"FROM UID (int): {uid_int}\n"
+            f"FROM UID (str): {uid_str}\n\n"
+            f"ADMIN_ID (int): {ADMIN_ID}\n"
+            f"ADMIN_ID (str): {str(ADMIN_ID)}\n\n"
+            f"UID == ADMIN_ID (int): {uid_int == ADMIN_ID}\n"
+            f"UID == ADMIN_ID (str): {uid_str == str(ADMIN_ID)}\n\n"
+            f"CALLBACK DATA: {repr(data)}\n"
+            f"MESSAGE ID: {msg_id}"
+        )
+    except Exception as e:
+        pass
 
     # ===============================
     # SERIES MODE (ADMIN ONLY)
@@ -3286,9 +3304,9 @@ def all_callbacks(c):
         )
 
         bot.answer_callback_query(c.id, "✅ Series Mode ON")
-        return  
+        return
 
-
+    
    
     # =====================
     # CHECKOUT (GROUPITEM LOGIC)

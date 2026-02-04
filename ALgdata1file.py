@@ -3251,34 +3251,15 @@ def series_finalize(m):
 
     bot.send_message(uid, "🎉 Series an adana dukka series lafiya.")
     del series_sessions[uid]
-@bot.callback_query_handler(func=lambda c: True)
-def CALLBACK_DEBUG_AND_HANDLER(c):
-    # ===============================
-    # BASIC DATA
-    # ===============================
-    uid_int = c.from_user.id          # int
-    uid_str = str(c.from_user.id)     # string
-    data = c.data
-    msg_id = c.message.message_id if c.message else "NO_MESSAGE"
 
-    # ===============================
-    # STRONG DEBUG (ALWAYS SEND)
-    # ===============================
-    try:
-        bot.send_message(
-            int(ADMIN_ID),
-            "🧪🔥 CALLBACK FULL DEBUG\n\n"
-            f"FROM UID (int): {uid_int}\n"
-            f"FROM UID (str): {uid_str}\n\n"
-            f"ADMIN_ID (int): {ADMIN_ID}\n"
-            f"ADMIN_ID (str): {str(ADMIN_ID)}\n\n"
-            f"UID == ADMIN_ID (int): {uid_int == ADMIN_ID}\n"
-            f"UID == ADMIN_ID (str): {uid_str == str(ADMIN_ID)}\n\n"
-            f"CALLBACK DATA: {repr(data)}\n"
-            f"MESSAGE ID: {msg_id}"
-        )
-    except Exception as e:
-        pass
+
+@bot.callback_query_handler(func=lambda c: True)
+def all_callbacks(c):
+    uid = str(c.from_user.id)   # ✅ amfani da STRING (Postgres / MySQL safe)
+    data = c.data
+
+
+ 
 
     # ===============================
     # SERIES MODE (ADMIN ONLY)
@@ -3305,20 +3286,7 @@ def CALLBACK_DEBUG_AND_HANDLER(c):
         )
 
         bot.answer_callback_query(c.id, "✅ Series Mode ON")
-        return
-
-
-
-
-
-
-@bot.callback_query_handler(func=lambda c: True)
-def all_callbacks(c):
-    uid = str(c.from_user.id)   # ✅ amfani da STRING (Postgres / MySQL safe)
-    data = c.data
-
-
-    
+        return  
 
 
    

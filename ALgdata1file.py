@@ -544,6 +544,7 @@ def telegram_webhook():
     return "OK", 200
 
 
+
 @bot.callback_query_handler(func=lambda c: c.data.startswith("deliver:"))
 def deliver_items(call):
     user_id = call.from_user.id
@@ -556,9 +557,9 @@ def deliver_items(call):
 
     cur = conn.cursor()
 
-    # 1️⃣ DUBA ORDER
+    # 1️⃣ CHECK ORDER (PAID)
     cur.execute(
-        "SELECT paid FROM orders WHERE id = %s AND user_id = %s",
+        "SELECT paid FROM orders WHERE id=%s AND user_id=%s",
         (order_id, user_id)
     )
     order = cur.fetchone()
@@ -568,27 +569,39 @@ def deliver_items(call):
         bot.answer_callback_query(call.id, "❌ Your payment has not been confirmed.")
         return
 
-    # 2️⃣ KAR A SAKE TURAWA
+    # 2️⃣ PREVENT RESEND
     cur.execute(
-        "SELECT 1 FROM user_movies WHERE order_id = %s LIMIT 1",
+        "SELECT 1 FROM user_movies WHERE order_id=%s LIMIT 1",
         (order_id,)
     )
     if cur.fetchone():
         cur.close()
+
         kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("🎥PAID MOVIES", callback_data="my_movies"))
-        bot.send_message(user_id, "ℹ🚫You have already received your movie.", reply_markup=kb)
+        kb.add(
+            InlineKeyboardButton(
+                "📽 Paid Movies",
+                callback_data="my_movies"
+            )
+        )
+
+        bot.send_message(
+            user_id,
+            "ℹ️🚫 You have already received your movie.\n\n"
+            "📽 You can download it again from Paid Movies.",
+            reply_markup=kb
+        )
         return
 
-    bot.answer_callback_query(call.id, "📤 We sent your items🥳. Thanks😇")
+    bot.answer_callback_query(call.id, "📤 Sending your items…")
 
-    # 3️⃣ DAUKO ITEMS
+    # 3️⃣ FETCH ITEMS
     cur.execute(
         """
         SELECT oi.item_id, oi.file_id, i.title
         FROM order_items oi
         JOIN items i ON i.id = oi.item_id
-        WHERE oi.order_id = %s
+        WHERE oi.order_id=%s
         """,
         (order_id,)
     )
@@ -601,7 +614,7 @@ def deliver_items(call):
 
     sent = 0
 
-    # 4️⃣ TURAWA
+    # 4️⃣ SEND ITEMS
     for item_id, file_id, title in items:
         if not file_id:
             continue
@@ -614,12 +627,23 @@ def deliver_items(call):
             continue
 
         try:
-            bot.send_video(user_id, file_id, caption=f"🎬 {title}")
+            bot.send_video(
+                user_id,
+                file_id,
+                caption=f"🎬 {title}"
+            )
         except:
-            bot.send_document(user_id, file_id, caption=f"📁 {title}")
+            bot.send_document(
+                user_id,
+                file_id,
+                caption=f"📁 {title}"
+            )
 
         cur.execute(
-            "INSERT INTO user_movies (user_id, item_id, order_id) VALUES (%s, %s, %s)",
+            """
+            INSERT INTO user_movies (user_id, item_id, order_id)
+            VALUES (%s,%s,%s)
+            """,
             (user_id, item_id, order_id)
         )
         sent += 1
@@ -628,16 +652,18 @@ def deliver_items(call):
     cur.close()
 
     if sent == 0:
-        bot.send_message(user_id, "❌ The movie could not be sent successfully.")
+        bot.send_message(
+            user_id,
+            "❌ The movie could not be sent successfully."
+        )
         return
 
     bot.send_message(
         user_id,
-        f"✅ We sent your items ({sent}).\nThank you, Our value customer😇🤗"
+        f"✅ We sent your items ({sent}).\nThank you, our valued customer 😇🤗"
     )
 
     send_feedback_prompt(user_id, order_id)
-
 
  #=========================================================
 # ========= HARD START HOWTO (DEEPLINK LOCK) ===============

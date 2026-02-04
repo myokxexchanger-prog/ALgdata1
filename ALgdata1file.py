@@ -810,36 +810,62 @@ def post_to_channel(m):
 
 # ======================================================
 # DEEPLINK HANDLER
+
 # ======================================================
-# HOW TO START (HOWTO ONLY)
+# HOW TO START (HOWTO ONLY) — WITH TELEGRAM DEBUGS
 # ======================================================
+
+DEBUG = True
+
+def dbg(chat_id, text):
+    if DEBUG:
+        try:
+            bot.send_message(chat_id, f"🐞 DEBUG: {text}")
+        except Exception:
+            pass
+
+
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("/start howto_"))
 def howto_start_handler(m):
-    args = m.text.split()
+    dbg(m.chat.id, "Handler triggered")
 
-    # kariya (defensive, ko da filter ya riga ya rufe)
+    args = m.text.split()
+    dbg(m.chat.id, f"Args: {args}")
+
+    # kariya
     if len(args) < 2 or not args[1].startswith("howto_"):
+        dbg(m.chat.id, "Args invalid or missing howto_")
         return
 
     try:
         version = int(args[1].split("_")[1])
-    except Exception:
+        dbg(m.chat.id, f"Parsed version: {version}")
+    except Exception as e:
+        dbg(m.chat.id, f"Version parse failed: {e}")
         return
 
-    row = conn.execute(
-        """
-        SELECT hausa_text, english_text, media_file_id, media_type
-        FROM how_to_buy
-        WHERE version=%s
-        """,
-        (version,)
-    ).fetchone()
+    try:
+        row = conn.execute(
+            """
+            SELECT hausa_text, english_text, media_file_id, media_type
+            FROM how_to_buy
+            WHERE version=%s
+            """,
+            (version,)
+        ).fetchone()
+        dbg(m.chat.id, "DB query executed")
+    except Exception as e:
+        dbg(m.chat.id, f"DB error: {e}")
+        return
 
     if not row:
+        dbg(m.chat.id, "No row found for this version")
         bot.send_message(m.chat.id, "❌ Wannan version bai wanzu ba.")
         return
 
     hausa_text, english_text, file_id, media_type = row
+    dbg(m.chat.id, f"Media type: {media_type}")
+    dbg(m.chat.id, f"File ID exists: {bool(file_id)}")
 
     kb = types.InlineKeyboardMarkup()
     kb.row(
@@ -849,41 +875,58 @@ def howto_start_handler(m):
 
     caption = hausa_text
 
-    if media_type == "video":
-        bot.send_video(m.chat.id, file_id, caption=caption, reply_markup=kb)
-    elif media_type == "document":
-        bot.send_document(m.chat.id, file_id, caption=caption, reply_markup=kb)
-    else:
-        bot.send_photo(m.chat.id, file_id, caption=caption, reply_markup=kb)
+    try:
+        if media_type == "video":
+            dbg(m.chat.id, "Sending video")
+            bot.send_video(m.chat.id, file_id, caption=caption, reply_markup=kb)
+        elif media_type == "document":
+            dbg(m.chat.id, "Sending document")
+            bot.send_document(m.chat.id, file_id, caption=caption, reply_markup=kb)
+        else:
+            dbg(m.chat.id, "Sending photo")
+            bot.send_photo(m.chat.id, file_id, caption=caption, reply_markup=kb)
+    except Exception as e:
+        dbg(m.chat.id, f"Send media failed: {e}")
+        return
 
 
 # ======================================================
-# LANGUAGE SWITCH (EDIT ONLY)
+# LANGUAGE SWITCH (EDIT ONLY) — WITH TELEGRAM DEBUGS
 # ======================================================
 @bot.callback_query_handler(func=lambda c: c.data.startswith("howto_"))
 def howto_language_switch(c):
+    dbg(c.message.chat.id, f"Callback received: {c.data}")
+
     try:
         lang, version = c.data.split(":")
         version = int(version)
-    except Exception:
+        dbg(c.message.chat.id, f"Lang: {lang}, Version: {version}")
+    except Exception as e:
+        dbg(c.message.chat.id, f"Callback parse failed: {e}")
         return
 
-    row = conn.execute(
-        """
-        SELECT hausa_text, english_text
-        FROM how_to_buy
-        WHERE version=%s
-        """,
-        (version,)
-    ).fetchone()
+    try:
+        row = conn.execute(
+            """
+            SELECT hausa_text, english_text
+            FROM how_to_buy
+            WHERE version=%s
+            """,
+            (version,)
+        ).fetchone()
+        dbg(c.message.chat.id, "Callback DB query executed")
+    except Exception as e:
+        dbg(c.message.chat.id, f"Callback DB error: {e}")
+        return
 
     if not row:
+        dbg(c.message.chat.id, "No row found in callback")
         bot.answer_callback_query(c.id, "❌ Version bai wanzu ba.")
         return
 
     hausa_text, english_text = row
-
     text = english_text if lang == "howto_en" else hausa_text
+    dbg(c.message.chat.id, f"Switching language to: {lang}")
 
     kb = types.InlineKeyboardMarkup()
     kb.row(
@@ -898,11 +941,13 @@ def howto_language_switch(c):
             caption=text,
             reply_markup=kb
         )
-    except Exception:
-        pass
+        dbg(c.message.chat.id, "Caption edited successfully")
+    except Exception as e:
+        dbg(c.message.chat.id, f"Edit caption failed: {e}")
 
     bot.answer_callback_query(c.id)
-# ======================================================
+
+# = ======================================================
 
 # ========= HARD START BUYD =========
 @bot.message_handler(

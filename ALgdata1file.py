@@ -491,6 +491,8 @@ def paystack_webhook():
     paid_amount = int(data.get("amount", 0) / 100)
 
     cur = conn.cursor()
+
+    # 1️⃣ FETCH ORDER
     cur.execute(
         "SELECT user_id, amount, paid FROM orders WHERE id=%s",
         (order_id,)
@@ -503,7 +505,8 @@ def paystack_webhook():
 
     user_id, expected_amount, paid = row
 
-    if paid is True:
+    # 2️⃣ PREVENT DOUBLE PROCESS
+    if paid == 1:
         cur.close()
         return "Already processed", 200
 
@@ -511,28 +514,91 @@ def paystack_webhook():
         cur.close()
         return "Wrong payment", 200
 
+    # 3️⃣ MARK AS PAID (INTEGER SAFE)
     cur.execute(
-        "UPDATE orders SET paid=TRUE WHERE id=%s",
+        "UPDATE orders SET paid=1 WHERE id=%s",
         (order_id,)
     )
+
+    # 4️⃣ GET USER FULL NAME
+    cur.execute(
+        """
+        SELECT first_name, last_name, username
+        FROM visited_users
+        WHERE user_id=%s
+        """,
+        (user_id,)
+    )
+    u = cur.fetchone()
+    if u:
+        first_name, last_name, username = u
+        full_name = f"{first_name or ''} {last_name or ''}".strip()
+    else:
+        full_name = "Unknown User"
+
+    # 5️⃣ GET ITEMS / MOVIES TITLES
+    cur.execute(
+        """
+        SELECT i.title
+        FROM order_items oi
+        JOIN items i ON i.id = oi.item_id
+        WHERE oi.order_id=%s
+        """,
+        (order_id,)
+    )
+    titles = [r[0] for r in cur.fetchall()]
+    titles_text = ", ".join(titles) if titles else "N/A"
+
     conn.commit()
     cur.close()
 
+    # 6️⃣ SEND USER MESSAGE
     kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("⬇️ DOWNLOAD NOW", callback_data=f"deliver:{order_id}"))
+    kb.add(
+        InlineKeyboardButton(
+            "⬇️ DOWNLOAD NOW",
+            callback_data=f"deliver:{order_id}"
+        )
+    )
 
     bot.send_message(
         user_id,
         f"""🎉 <b>Payment Successful!</b>
 
-🗃 Order ID: <code>{order_id}</code>
-💳 Total Amount: ₦{paid_amount}
+👤 <b>Name:</b> {full_name}
+🎬 <b>Items:</b> {titles_text}
+
+🗃 <b>Order ID:</b> <code>{order_id}</code>
+💳 <b>Amount:</b> ₦{paid_amount}
 """,
         parse_mode="HTML",
         reply_markup=kb
     )
 
+    # 7️⃣ PAYMENT NOTIFICATION (OPTIONAL)
+    if PAYMENT_NOTIFY_GROUP:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        bot.send_message(
+            PAYMENT_NOTIFY_GROUP,
+            f"""✅ <b>NEW PAYMENT RECEIVED</b>
+
+👤 User: {full_name}
+🆔 User ID: <code>{user_id}</code>
+
+🎬 Items: {titles_text}
+🗃 Order ID: <code>{order_id}</code>
+💰 Amount: ₦{paid_amount}
+⏰ Time: {now}
+""",
+            parse_mode="HTML"
+        )
+
+    print("✅ WEBHOOK PROCESSED:", order_id)
     return "OK", 200
+
+
+
 # 
 # ========= TELEGRAM WEBHOOK =========
 @app.route("/telegram", methods=["POST"])

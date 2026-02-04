@@ -3252,39 +3252,32 @@ def series_finalize(m):
     bot.send_message(uid, "🎉 Series an adana dukka series lafiya.")
     del series_sessions[uid]
 @bot.callback_query_handler(func=lambda c: True)
-def GLOBAL_CALLBACK_DEBUG(c):
+def CALLBACK_DEBUG_AND_HANDLER(c):
+    # ===============================
+    # BASIC DATA
+    # ===============================
+    uid_int = c.from_user.id          # int
+    uid_str = str(c.from_user.id)     # string
+    data = c.data
+    msg_id = c.message.message_id if c.message else "NO_MESSAGE"
+
+    # ===============================
+    # STRONG DEBUG (ALWAYS SEND)
+    # ===============================
     try:
         bot.send_message(
-            ADMIN_ID,
-            "🟥 GLOBAL CALLBACK HIT\n"
-            f"FROM UID: {c.from_user.id}\n"
-            f"DATA: {repr(c.data)}\n"
-            f"MESSAGE ID: {c.message.message_id if c.message else 'NO MSG'}"
+            int(ADMIN_ID),
+            "🧪🔥 CALLBACK FULL DEBUG\n\n"
+            f"FROM UID (int): {uid_int}\n"
+            f"FROM UID (str): {uid_str}\n\n"
+            f"ADMIN_ID (int): {ADMIN_ID}\n"
+            f"ADMIN_ID (str): {str(ADMIN_ID)}\n\n"
+            f"UID == ADMIN_ID (int): {uid_int == ADMIN_ID}\n"
+            f"UID == ADMIN_ID (str): {uid_str == str(ADMIN_ID)}\n\n"
+            f"CALLBACK DATA: {repr(data)}\n"
+            f"MESSAGE ID: {msg_id}"
         )
     except Exception as e:
-        pass
-
-    # ⚠️ KAR KA SA RETURN NAN
-
-@bot.callback_query_handler(func=lambda c: True)
-def all_callbacks(c):
-    uid = str(c.from_user.id)   # ✅ amfani da STRING (Postgres / MySQL safe)
-    data = c.data
-
-
-    # ===============================
-    # GLOBAL DEBUG (ZAI TURA SAKO)
-    # ===============================
-    try:
-        bot.send_message(
-            ADMIN_ID,
-            "🧪 CALLBACK DEBUG\n"
-            f"UID: {uid} ({type(uid)})\n"
-            f"ADMIN_ID: {ADMIN_ID} ({type(ADMIN_ID)})\n"
-            f"EQUAL?: {uid == str(ADMIN_ID)}\n"
-            f"CALLBACK DATA: {repr(data)}"
-        )
-    except Exception:
         pass
 
     # ===============================
@@ -3292,19 +3285,19 @@ def all_callbacks(c):
     # ===============================
     if data == "groupitems":
 
-        # ⚠️ ADMIN CHECK — STRING SAFE
-        if uid != str(ADMIN_ID):
+        # 🔐 ADMIN CHECK (STRING SAFE)
+        if uid_str != str(ADMIN_ID):
             bot.answer_callback_query(c.id, "Ba izini.")
             return
 
-        # ✅ IDAN YA SHIGA NAN, ADMIN NE
-        series_sessions[uid] = {
+        # ✅ IDAN YA ZO NAN — ADMIN NE TABBATACCE
+        series_sessions[uid_str] = {
             "files": [],
             "stage": "collect"
         }
 
         bot.send_message(
-            int(uid),   # ⚠️ Telegram na bukatar INT
+            uid_int,
             "📺 <b>Series Mode ya fara</b>\n\n"
             "Ka fara turo videos/documents.\n"
             "Idan ka gama rubuta <b>Done</b>.",
@@ -3314,6 +3307,18 @@ def all_callbacks(c):
         bot.answer_callback_query(c.id, "✅ Series Mode ON")
         return
 
+
+
+
+
+
+@bot.callback_query_handler(func=lambda c: True)
+def all_callbacks(c):
+    uid = str(c.from_user.id)   # ✅ amfani da STRING (Postgres / MySQL safe)
+    data = c.data
+
+
+    
 
 
    

@@ -3258,12 +3258,15 @@ def all_callbacks(c):
     uid = str(c.from_user.id)   # ✅ amfani da STRING (Postgres / MySQL safe)
     data = c.data
 
-# ===============================
+
+
+    # ===============================
     # SERIES MODE (ADMIN ONLY)
     # ===============================
     if data == "groupitems":
         if uid != ADMIN_ID:
-            return bot.answer_callback_query(c.id, "groupitems.")
+            bot.answer_callback_query(c.id, "Ba izini.")
+            return
 
         series_sessions[uid] = {
             "files": [],
@@ -3277,8 +3280,12 @@ def all_callbacks(c):
             "Idan ka gama rubuta <b>Done</b>.",
             parse_mode="HTML"
         )
+
         bot.answer_callback_query(c.id)
         return
+
+
+
   
     # =====================
     # CHECKOUT (GROUPITEM LOGIC)

@@ -3258,7 +3258,27 @@ def all_callbacks(c):
     uid = str(c.from_user.id)   # ✅ amfani da STRING (Postgres / MySQL safe)
     data = c.data
 
+# ===============================
+    # SERIES MODE (ADMIN ONLY)
+    # ===============================
+    if data == "groupitems":
+        if uid != ADMIN_ID:
+            return bot.answer_callback_query(c.id, "groupitems.")
 
+        series_sessions[uid] = {
+            "files": [],
+            "stage": "collect"
+        }
+
+        bot.send_message(
+            uid,
+            "📺 <b>Series Mode ya fara</b>\n\n"
+            "Ka fara turo videos/documents.\n"
+            "Idan ka gama rubuta <b>Done</b>.",
+            parse_mode="HTML"
+        )
+        bot.answer_callback_query(c.id)
+        return
   
     # =====================
     # CHECKOUT (GROUPITEM LOGIC)
@@ -3807,28 +3827,7 @@ def all_callbacks(c):
 
 
 
-    # ===============================
-    # SERIES MODE (ADMIN ONLY)
-    # ===============================
-    if data == "groupitems":
-        if uid != ADMIN_ID:
-            return bot.answer_callback_query(c.id)
-
-        series_sessions[uid] = {
-            "files": [],
-            "stage": "collect"
-        }
-
-        bot.send_message(
-            uid,
-            "📺 <b>Series Mode ya fara</b>\n\n"
-            "Ka fara turo videos/documents.\n"
-            "Idan ka gama rubuta <b>Done</b>.",
-            parse_mode="HTML"
-        )
-        bot.answer_callback_query(c.id)
-        return
-
+    
    
 
     # =====================

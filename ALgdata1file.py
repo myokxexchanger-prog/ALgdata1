@@ -730,39 +730,7 @@ def deliver_items(call):
 
     send_feedback_prompt(user_id, order_id)
 
-@bot.callback_query_handler(func=lambda c: c.data == "groupitems")
-def series_callback(c):
-    uid = c.from_user.id
-    data = c.data
 
-    # DEBUG — wannan ZAI TURA SAKO
-    bot.send_message(
-        ADMIN_ID,
-        "🧪 SERIES CALLBACK DEBUG\n"
-        f"UID: {uid} ({type(uid)})\n"
-        f"ADMIN_ID: {ADMIN_ID} ({type(ADMIN_ID)})\n"
-        f"EQUAL?: {uid == ADMIN_ID}\n"
-        f"DATA: {data}"
-    )
-
-    if uid != ADMIN_ID:
-        bot.answer_callback_query(c.id, "Ba izini.")
-        return
-
-    series_sessions[uid] = {
-        "files": [],
-        "stage": "collect"
-    }
-
-    bot.send_message(
-        uid,
-        "📺 <b>Series Mode ya fara</b>\n\n"
-        "Ka fara turo videos/documents.\n"
-        "Idan ka gama rubuta <b>Done</b>.",
-        parse_mode="HTML"
-    )
-
-    bot.answer_callback_query(c.id, "✅ Series Mode ON")
 
  #=========================================================
 # ========= HARD START HOWTO (DEEPLINK LOCK) ===============
@@ -3283,7 +3251,20 @@ def series_finalize(m):
 
     bot.send_message(uid, "🎉 Series an adana dukka series lafiya.")
     del series_sessions[uid]
+@bot.callback_query_handler(func=lambda c: True)
+def GLOBAL_CALLBACK_DEBUG(c):
+    try:
+        bot.send_message(
+            ADMIN_ID,
+            "🟥 GLOBAL CALLBACK HIT\n"
+            f"FROM UID: {c.from_user.id}\n"
+            f"DATA: {repr(c.data)}\n"
+            f"MESSAGE ID: {c.message.message_id if c.message else 'NO MSG'}"
+        )
+    except Exception as e:
+        pass
 
+    # ⚠️ KAR KA SA RETURN NAN
 
 @bot.callback_query_handler(func=lambda c: True)
 def all_callbacks(c):
@@ -3291,8 +3272,50 @@ def all_callbacks(c):
     data = c.data
 
 
+    # ===============================
+    # GLOBAL DEBUG (ZAI TURA SAKO)
+    # ===============================
+    try:
+        bot.send_message(
+            ADMIN_ID,
+            "🧪 CALLBACK DEBUG\n"
+            f"UID: {uid} ({type(uid)})\n"
+            f"ADMIN_ID: {ADMIN_ID} ({type(ADMIN_ID)})\n"
+            f"EQUAL?: {uid == str(ADMIN_ID)}\n"
+            f"CALLBACK DATA: {repr(data)}"
+        )
+    except Exception:
+        pass
 
-    
+    # ===============================
+    # SERIES MODE (ADMIN ONLY)
+    # ===============================
+    if data == "groupitems":
+
+        # ⚠️ ADMIN CHECK — STRING SAFE
+        if uid != str(ADMIN_ID):
+            bot.answer_callback_query(c.id, "Ba izini.")
+            return
+
+        # ✅ IDAN YA SHIGA NAN, ADMIN NE
+        series_sessions[uid] = {
+            "files": [],
+            "stage": "collect"
+        }
+
+        bot.send_message(
+            int(uid),   # ⚠️ Telegram na bukatar INT
+            "📺 <b>Series Mode ya fara</b>\n\n"
+            "Ka fara turo videos/documents.\n"
+            "Idan ka gama rubuta <b>Done</b>.",
+            parse_mode="HTML"
+        )
+
+        bot.answer_callback_query(c.id, "✅ Series Mode ON")
+        return
+
+
+
    
     # =====================
     # CHECKOUT (GROUPITEM LOGIC)

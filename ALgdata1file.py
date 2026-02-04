@@ -3807,13 +3807,12 @@ def all_callbacks(c):
 
 
 
-
     # ===============================
     # SERIES MODE (ADMIN ONLY)
     # ===============================
     if data == "groupitems":
         if uid != ADMIN_ID:
-            return bot.answer_callback_query(c.id, "groupitems.")
+            return bot.answer_callback_query(c.id)
 
         series_sessions[uid] = {
             "files": [],
@@ -3829,14 +3828,8 @@ def all_callbacks(c):
         )
         bot.answer_callback_query(c.id)
         return
-    # =====================
-    # OPEN UNPAID ORDERS (PAGE 0)
-    # =====================
-    if data == "myorders_new":
-        text, kb = build_unpaid_orders_view(uid, page=0)
-        bot.send_message(uid, text, reply_markup=kb, parse_mode="HTML")
-        bot.answer_callback_query(c.id)
-        return
+
+   
 
     # =====================
     # UNPAID PAGINATION

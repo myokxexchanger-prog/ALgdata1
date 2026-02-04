@@ -845,14 +845,17 @@ def howto_start_handler(m):
         return
 
     try:
-        row = conn.execute(
+        cur = conn.cursor()
+        cur.execute(
             """
             SELECT hausa_text, english_text, media_file_id, media_type
             FROM how_to_buy
             WHERE version=%s
             """,
             (version,)
-        ).fetchone()
+        )
+        row = cur.fetchone()
+        cur.close()
         dbg(m.chat.id, "DB query executed")
     except Exception as e:
         dbg(m.chat.id, f"DB error: {e}")
@@ -906,14 +909,17 @@ def howto_language_switch(c):
         return
 
     try:
-        row = conn.execute(
+        cur = conn.cursor()
+        cur.execute(
             """
             SELECT hausa_text, english_text
             FROM how_to_buy
             WHERE version=%s
             """,
             (version,)
-        ).fetchone()
+        )
+        row = cur.fetchone()
+        cur.close()
         dbg(c.message.chat.id, "Callback DB query executed")
     except Exception as e:
         dbg(c.message.chat.id, f"Callback DB error: {e}")
@@ -946,7 +952,6 @@ def howto_language_switch(c):
         dbg(c.message.chat.id, f"Edit caption failed: {e}")
 
     bot.answer_callback_query(c.id)
-
 # = ======================================================
 
 # ========= HARD START BUYD =========

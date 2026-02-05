@@ -3182,6 +3182,8 @@ def series_finalize(m):
         return
 
     poster_file_id = m.photo[-1].file_id
+
+    # ✅ CURSOR SAFE
     cur = conn.cursor()
 
     cur.execute(
@@ -3228,6 +3230,7 @@ def series_finalize(m):
         item_ids.append(cur.fetchone()[0])
 
     conn.commit()
+    cur.close()
 
     display_price = f"{price:,}" if has_comma else str(price)
     ids_str = "_".join(str(i) for i in item_ids)

@@ -3251,63 +3251,34 @@ def series_finalize(m):
 
     bot.send_message(uid, "🎉 Series an adana dukka series lafiya.")
     del series_sessions[uid]
-
-
 @bot.callback_query_handler(func=lambda c: True)
 def all_callbacks(c):
-    uid = str(c.from_user.id)   # ✅ amfani da STRING (Postgres / MySQL safe)
+    uid = str(c.from_user.id)
     data = c.data
 
+    # 🔑 WANNAN KADAI NA GYARA KOMAI
+    bot.answer_callback_query(c.id)
 
-
-    # ===============================
-    # STRONG DEBUG (ALWAYS SEND)
-    # ===============================
-    try:
-        bot.send_message(
-            int(ADMIN_ID),
-            "🧪🔥 CALLBACK FULL DEBUG\n\n"
-            f"FROM UID (int): {uid_int}\n"
-            f"FROM UID (str): {uid_str}\n\n"
-            f"ADMIN_ID (int): {ADMIN_ID}\n"
-            f"ADMIN_ID (str): {str(ADMIN_ID)}\n\n"
-            f"UID == ADMIN_ID (int): {uid_int == ADMIN_ID}\n"
-            f"UID == ADMIN_ID (str): {uid_str == str(ADMIN_ID)}\n\n"
-            f"CALLBACK DATA: {repr(data)}\n"
-            f"MESSAGE ID: {msg_id}"
-        )
-    except Exception as e:
-        pass
-
-    # ===============================
-    # SERIES MODE (ADMIN ONLY)
-    # ===============================
     if data == "groupitems":
-
-        # 🔐 ADMIN CHECK (STRING SAFE)
-        if uid_str != str(ADMIN_ID):
+        if uid != str(ADMIN_ID):
             bot.answer_callback_query(c.id, "Ba izini.")
             return
 
-        # ✅ IDAN YA ZO NAN — ADMIN NE TABBATACCE
-        series_sessions[uid_str] = {
+        series_sessions[uid] = {
             "files": [],
             "stage": "collect"
         }
 
         bot.send_message(
-            uid_int,
+            int(uid),
             "📺 <b>Series Mode ya fara</b>\n\n"
             "Ka fara turo videos/documents.\n"
             "Idan ka gama rubuta <b>Done</b>.",
             parse_mode="HTML"
         )
-
-        bot.answer_callback_query(c.id, "✅ Series Mode ON")
         return
 
-    
-   
+
     # =====================
     # CHECKOUT (GROUPITEM LOGIC)
     # =====================

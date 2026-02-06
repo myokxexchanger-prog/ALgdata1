@@ -1322,68 +1322,6 @@ def start(message):
     )
 
 
-@bot.message_handler(func=lambda m: user_states.get(m.from_user.id, {}).get("action") == "_resend_search_")
-def handle_resend_search(m):
-    uid = m.from_user.id
-    query = m.text.strip()
-
-    # === DEBUG ===
-    bot.send_message(ADMIN_ID, f"🔍 SEARCH QUERY from {uid}: {query}")
-
-    # 1. Check if user ever bought movies
-    row = conn.execute(
-        "SELECT COUNT(*) FROM user_movies WHERE user_id=%s",
-        (uid,)
-    ).fetchone()
-
-    if row[0] == 0:
-        bot.send_message(
-            uid,
-            "❌ You have not purchased any movies yet."
-        )
-        user_states.pop(uid, None)
-        return
-
-    # 2. Search matching movies (PARTIAL MATCH)
-    rows = conn.execute(
-        """
-        SELECT DISTINCT i.id, i.title
-        FROM user_movies ui
-        JOIN items i ON i.id = ui.item_id
-        WHERE ui.user_id=%s
-          AND LOWER(i.title) LIKE LOWER(%s)
-        ORDER BY i.title ASC
-        LIMIT 10
-        """,
-        (uid, f"%{query}%")
-    ).fetchall()
-
-    if not rows:
-        bot.send_message(
-            uid,
-            "❌ No purchased movie matches that name."
-        )
-        user_states.pop(uid, None)
-        return
-
-    kb = InlineKeyboardMarkup()
-    for item_id, title in rows:
-        kb.add(
-            InlineKeyboardButton(
-                title,
-                callback_data=f"resend_one:{item_id}"
-            )
-        )
-
-    bot.send_message(
-        uid,
-        "🎬 <b>Select a movie to resend</b>",
-        parse_mode="HTML",
-        reply_markup=kb
-    )
-
-    # EXIT STAGE (NO TRY AGAIN)
-    user_states.pop(uid, None)
 # ======================================
 # TEXT BUTTON HANDLER (GLOBAL SAFE)
 # ======================================

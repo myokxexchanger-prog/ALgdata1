@@ -701,22 +701,25 @@ def deliver_items(call):
     try:
         _, order_id = call.data.split(":", 1)
     except:
-        bot.answer_callback_query(call.id, "❌ Error from order info.")
+        bot.answer_callback_query(call.id, "❌ Invalid order info.")
         return
 
     cur = conn.cursor()
 
-    # 1️⃣ CHECK ORDER (PAID - BOOLEAN SAFE)
+    # 1️⃣ CHECK ORDER (INT SAFE)
     cur.execute(
         "SELECT paid FROM orders WHERE id=%s AND user_id=%s",
         (order_id, user_id)
     )
-    order = cur.fetchone()
+    row = cur.fetchone()
 
-    # 🔧 FIX: PostgreSQL BOOLEAN CHECK
-    if not order or order[0] is not True:
+    # ✅ FIX HERE
+    if not row or row[0] != 1:
         cur.close()
-        bot.answer_callback_query(call.id, "❌ Your payment has not been confirmed.")
+        bot.answer_callback_query(
+            call.id,
+            "❌ Your payment has not been confirmed yet."
+        )
         return
 
     # 2️⃣ PREVENT RESEND
@@ -730,14 +733,14 @@ def deliver_items(call):
         kb = InlineKeyboardMarkup()
         kb.add(
             InlineKeyboardButton(
-                "📽PAID MOVIES",
+                "📽 PAID MOVIES",
                 callback_data="my_movies"
             )
         )
 
         bot.send_message(
             user_id,
-            "ℹ️🚫 You have already received your movie.\n\n"
+            "ℹ️ You have already received this movie.\n\n"
             "📽 You can download it again from Paid Movies.",
             reply_markup=kb
         )
@@ -759,7 +762,7 @@ def deliver_items(call):
 
     if not items:
         cur.close()
-        bot.send_message(user_id, "❌ There is an issue with your order.")
+        bot.send_message(user_id, "❌ Order items not found.")
         return
 
     sent = 0
@@ -777,17 +780,9 @@ def deliver_items(call):
             continue
 
         try:
-            bot.send_video(
-                user_id,
-                file_id,
-                caption=f"🎬 {title}"
-            )
+            bot.send_video(user_id, file_id, caption=f"🎬 {title}")
         except:
-            bot.send_document(
-                user_id,
-                file_id,
-                caption=f"📁 {title}"
-            )
+            bot.send_document(user_id, file_id, caption=f"📁 {title}")
 
         cur.execute(
             """
@@ -802,21 +797,16 @@ def deliver_items(call):
     cur.close()
 
     if sent == 0:
-        bot.send_message(
-            user_id,
-            "❌ The movie could not be sent successfully."
-        )
+        bot.send_message(user_id, "❌ Items could not be sent.")
         return
 
     bot.send_message(
         user_id,
-        f"✅ We sent your items ({sent}).\nThank you, our valued customer 😇🤗"
+        f"✅ Your movie(s) have been delivered ({sent}).\n"
+        "Thank you for your purchase 🤗"
     )
 
     send_feedback_prompt(user_id, order_id)
-
-
-
  #=========================================================
 # ========= HARD START HOWTO (DEEPLINK LOCK) ===============
 # =========================================================

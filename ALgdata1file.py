@@ -4161,33 +4161,7 @@ def all_callbacks(c):
 
         return        
         
-    # ================= REMOVE BUTTONS =================
-        try:
-            bot.edit_message_reply_markup(
-                chat_id=c.message.chat.id,
-                message_id=c.message.message_id,
-                reply_markup=None
-            )
-        except Exception as e:
-            print("⚠️ EDIT MARKUP ERROR:", e)
-
-        # ================= USER REPLY =================
-        user_replies = {
-            "very": "🥰 Mun gode sosai! Allah ya saka da alheri.",
-            "good": "😊 Mun gode! Za mu ƙara ingantawa.",
-            "neutral": "🤍 Mun gode da ra'ayinka.",
-            "angry": "🙏 Mun baku haƙuri, za mu gyara Insha Allah."
-        }
-
-        bot.answer_callback_query(c.id, "✅ Mun karɓi ra'ayinka")
-        bot.send_message(uid, user_replies.get(mood, "Mun gode 🙏"))
-
-    except Exception as e:
-        print("🔥 CALLBACK FATAL ERROR:", e)
-        bot.answer_callback_query(c.id, "⚠️ Error ya faru", show_alert=True)   
-        
-
-
+    
     # =====================
     # ADD MOVIE (ADMIN)
     # =====================

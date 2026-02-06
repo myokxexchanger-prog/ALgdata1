@@ -3650,23 +3650,24 @@ def all_callbacks(c):
         bot.answer_callback_query(c.id)
         return
 
-   
-
+ 
 
     # =====================
     # PENDING / UNPAID ORDERS
     # =====================
     if data == "myorders_new":
         text, kb = build_unpaid_orders_view(uid, page=0)
-        bot.edit_message_text(
-            chat_id=c.message.chat.id,
-            message_id=c.message.message_id,
+
+        bot.send_message(
+            chat_id=uid,
             text=text,
             reply_markup=kb,
             parse_mode="HTML"
         )
+
+        bot.answer_callback_query(c.id)
         return
-    
+
 
 
     # ================= 🔍 RESEND SEARCH (STATE SETTER) =================

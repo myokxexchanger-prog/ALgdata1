@@ -467,10 +467,15 @@ def send_feedback_prompt(user_id, order_id):
         reply_markup=kb
     )
 
+# ========= PAYSTACK WEBHOOK (POSTGRES FIXED) =========
 @app.route("/webhook", methods=["POST"])
 def paystack_webhook():
+
+    print("🔔 PAYSTACK WEBHOOK RECEIVED")
+
     signature = request.headers.get("x-paystack-signature")
     if not signature:
+        print("❌ Missing Paystack signature")
         return "Missing signature", 401
 
     computed = hmac.new(
@@ -480,47 +485,70 @@ def paystack_webhook():
     ).hexdigest()
 
     if signature != computed:
+        print("❌ Invalid Paystack signature")
         return "Invalid signature", 401
 
     payload = request.json or {}
-    if payload.get("event") != "charge.success":
+    event = payload.get("event")
+
+    if event != "charge.success":
         return "Ignored", 200
 
     data = payload.get("data", {})
-    order_id = data.get("reference")
+    reference = data.get("reference")
     paid_amount = int(data.get("amount", 0) / 100)
+    currency = data.get("currency")
 
     cur = conn.cursor()
 
-    # 1️⃣ FETCH ORDER
+    # ================= FETCH ORDER BY REFERENCE =================
     cur.execute(
-        "SELECT user_id, amount, paid FROM orders WHERE id=%s",
-        (order_id,)
+        """
+        SELECT user_id, amount, paid
+        FROM orders
+        WHERE reference=%s
+        """,
+        (reference,)
     )
     row = cur.fetchone()
 
     if not row:
         cur.close()
+        print("❌ Order not found:", reference)
         return "Order not found", 200
 
     user_id, expected_amount, paid = row
 
-    # 2️⃣ PREVENT DOUBLE PROCESS
+    # ================= PREVENT DOUBLE PROCESS =================
     if paid == 1:
         cur.close()
+        print("⚠️ Already processed:", reference)
         return "Already processed", 200
 
-    if paid_amount != expected_amount:
+    if paid_amount != expected_amount or currency != "NGN":
         cur.close()
+        print("❌ Wrong payment:", reference)
         return "Wrong payment", 200
 
-    # 3️⃣ MARK AS PAID (INTEGER SAFE)
+    # ================= CHECK ORDER ITEMS =================
     cur.execute(
-        "UPDATE orders SET paid=1 WHERE id=%s",
-        (order_id,)
+        "SELECT COUNT(*) FROM order_items WHERE order_id=%s",
+        (reference,)
+    )
+    items_count = cur.fetchone()[0]
+
+    if items_count == 0:
+        cur.close()
+        print("❌ Empty order:", reference)
+        return "Empty order", 200
+
+    # ================= MARK AS PAID =================
+    cur.execute(
+        "UPDATE orders SET paid=1 WHERE reference=%s",
+        (reference,)
     )
 
-    # 4️⃣ GET USER FULL NAME
+    # ================= USER INFO =================
     cur.execute(
         """
         SELECT first_name, last_name, username
@@ -536,7 +564,7 @@ def paystack_webhook():
     else:
         full_name = "Unknown User"
 
-    # 5️⃣ GET ITEMS / MOVIES TITLES
+    # ================= ITEMS TITLES =================
     cur.execute(
         """
         SELECT i.title
@@ -544,7 +572,7 @@ def paystack_webhook():
         JOIN items i ON i.id = oi.item_id
         WHERE oi.order_id=%s
         """,
-        (order_id,)
+        (reference,)
     )
     titles = [r[0] for r in cur.fetchall()]
     titles_text = ", ".join(titles) if titles else "N/A"
@@ -552,12 +580,12 @@ def paystack_webhook():
     conn.commit()
     cur.close()
 
-    # 6️⃣ SEND USER MESSAGE
+    # ================= USER MESSAGE =================
     kb = InlineKeyboardMarkup()
     kb.add(
         InlineKeyboardButton(
             "⬇️ DOWNLOAD NOW",
-            callback_data=f"deliver:{order_id}"
+            callback_data=f"deliver:{reference}"
         )
     )
 
@@ -568,14 +596,14 @@ def paystack_webhook():
 👤 <b>Name:</b> {full_name}
 🎬 <b>Items:</b> {titles_text}
 
-🗃 <b>Order ID:</b> <code>{order_id}</code>
+🗃 <b>Order ID:</b> <code>{reference}</code>
 💳 <b>Amount:</b> ₦{paid_amount}
 """,
         parse_mode="HTML",
         reply_markup=kb
     )
 
-    # 7️⃣ PAYMENT NOTIFICATION (OPTIONAL)
+    # ================= PAYMENT NOTIFICATION =================
     if PAYMENT_NOTIFY_GROUP:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -587,15 +615,16 @@ def paystack_webhook():
 🆔 User ID: <code>{user_id}</code>
 
 🎬 Items: {titles_text}
-🗃 Order ID: <code>{order_id}</code>
+🗃 Order ID: <code>{reference}</code>
 💰 Amount: ₦{paid_amount}
 ⏰ Time: {now}
 """,
             parse_mode="HTML"
         )
 
-    print("✅ WEBHOOK PROCESSED:", order_id)
+    print("✅ WEBHOOK PROCESSED:", reference)
     return "OK", 200
+
 
 
 

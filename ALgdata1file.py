@@ -4054,7 +4054,114 @@ def all_callbacks(c):
         except Exception as e:
             print("⚠️ ADMIN SEND ERROR:", e)
 
-        # ================= REMOVE BUTTONS =================
+    # ================= FEEDBACK =================
+    if data.startswith("feedback:"):
+        parts = data.split(":")
+        if len(parts) != 3:
+            return
+
+        mood, order_id = parts[1], parts[2]
+
+        # 1️⃣ CHECK ORDER
+        row = conn.execute(
+            "SELECT 1 FROM orders WHERE id=%s AND user_id=%s AND paid=1",
+            (order_id, uid)
+        ).fetchone()
+
+        if not row:
+            bot.answer_callback_query(
+                c.id,
+                "⚠️ Wannan order ba naka bane.",
+                show_alert=True
+            )
+            return
+
+        # 2️⃣ PREVENT DUPLICATE FEEDBACK
+        exists = conn.execute(
+            "SELECT 1 FROM feedbacks WHERE order_id=%s",
+            (order_id,)
+        ).fetchone()
+
+        if exists:
+            bot.answer_callback_query(
+                c.id,
+                "Ka riga ka bada ra'ayi.",
+                show_alert=True
+            )
+            return
+
+        # 3️⃣ SAVE FEEDBACK
+        conn.execute(
+            "INSERT INTO feedbacks (order_id, user_id, mood) VALUES (%s,%s,%s)",
+            (order_id, uid, mood)
+        )
+        conn.commit()
+
+        # 4️⃣ GET USER NAME
+        try:
+            chat = bot.get_chat(uid)
+            fname = chat.first_name or "User"
+        except:
+            fname = "User"
+
+        # 5️⃣ MESSAGES
+        admin_messages = {
+            "very": (
+                "😘 Gaskiya na ji daɗin siyayya da bot ɗinku\n"
+                "Alhamdulillah bot yana sauƙaƙa siyan fim 😇"
+            ),
+            "good": (
+                "🙂 Na ji daɗin siyayya\n"
+                "Bot ɗin yana aiki sosai"
+            ),
+            "neutral": (
+                "😓 Ban gama fahimta ba\n"
+                "Amma yana da amfani"
+            ),
+            "angry": (
+                "🤬 Bot yana da matsala\n"
+                "Akwai bukatar gyara"
+            )
+        }
+
+        user_replies = {
+            "very": "🥰 Mun gode sosai! Za mu ƙara inganta Insha Allah.",
+            "good": "😊 Mun gode da ra'ayinka!",
+            "neutral": "🤍 Mun gode. Za mu duba matsalolin.",
+            "angry": "🙏 Muna baku haƙuri. Za mu gyara Insha Allah."
+        }
+
+        admin_text = (
+            f"📣 FEEDBACK RECEIVED\n\n"
+            f"👤 User: {fname}\n"
+            f"🆔 ID: {uid}\n"
+            f"📦 Order: {order_id}\n\n"
+            f"{admin_messages.get(mood, mood)}"
+        )
+
+        # 6️⃣ SEND TO ADMIN
+        bot.send_message(ADMIN_ID, admin_text)
+
+        # 7️⃣ REMOVE BUTTONS
+        try:
+            bot.edit_message_reply_markup(
+                chat_id=c.message.chat.id,
+                message_id=c.message.message_id,
+                reply_markup=None
+            )
+        except:
+            pass
+
+        # 8️⃣ CONFIRM TO USER
+        bot.answer_callback_query(c.id, "✅ Mun karɓi ra'ayinka")
+        bot.send_message(
+            uid,
+            user_replies.get(mood, "Mun gode 🙏")
+        )
+
+        return        
+        
+    # ================= REMOVE BUTTONS =================
         try:
             bot.edit_message_reply_markup(
                 chat_id=c.message.chat.id,

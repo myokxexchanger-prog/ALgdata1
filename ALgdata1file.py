@@ -3961,31 +3961,49 @@ def all_callbacks(c):
             send_allfilms_page(uid, idx)
         return
 
-    # ================= FEEDBACK =================
-    if data.startswith("feedback:"):
-        parts = data.split(":")
+
+        # ================= FEEDBACK =================
+        if not data.startswith("feedback:"):
+            bot.answer_callback_query(c.id)
+            return
+
+        parts = data.split(":", 2)
         if len(parts) != 3:
+            print("❌ INVALID CALLBACK FORMAT")
+            bot.answer_callback_query(c.id, "⚠️ Invalid feedback data", show_alert=True)
             return
 
         mood, order_id = parts[1], parts[2]
 
+        print("🧠 MOOD:", mood)
+        print("📦 ORDER_ID:", order_id)
+
+        # ✅ CHECK ORDER (UUID SAFE)
         row = conn.execute(
-            "SELECT 1 FROM orders WHERE id=%s AND user_id=%s AND paid=1",
+            """
+            SELECT id FROM orders
+            WHERE id=%s AND user_id=%s AND paid=1
+            """,
             (order_id, uid)
         ).fetchone()
+
+        print("📄 ORDER ROW:", row)
 
         if not row:
             bot.answer_callback_query(
                 c.id,
-                "⚠️ Wannan order ba naka bane.",
+                "⚠️ Wannan order ba naka bane ko ba'a biya ba.",
                 show_alert=True
             )
             return
 
+        # ✅ CHECK DUPLICATE FEEDBACK
         exists = conn.execute(
             "SELECT 1 FROM feedbacks WHERE order_id=%s",
             (order_id,)
         ).fetchone()
+
+        print("🧾 FEEDBACK EXISTS:", exists)
 
         if exists:
             bot.answer_callback_query(
@@ -3995,74 +4013,73 @@ def all_callbacks(c):
             )
             return
 
+        # ✅ INSERT FEEDBACK
         conn.execute(
-            "INSERT INTO feedbacks (order_id, user_id, mood) VALUES (%s,%s,%s)",
+            """
+            INSERT INTO feedbacks (order_id, user_id, mood)
+            VALUES (%s, %s, %s)
+            """,
             (order_id, uid, mood)
         )
         conn.commit()
 
+        print("✅ FEEDBACK SAVED")
+
+        # ================= ADMIN MESSAGE =================
         try:
             chat = bot.get_chat(uid)
             fname = chat.first_name or "User"
-        except:
+        except Exception as e:
+            print("⚠️ GET_CHAT ERROR:", e)
             fname = "User"
 
         admin_messages = {
-            "very": (
-                "😘 Gaskiya na ji daɗin siyayya da bot ɗinku\n"
-                "Alhamdulillah wannan bot yana sauƙaƙa siyan fim sosai 😇\n"
-                "Muna godiya ƙwarai 🥰🙏"
-            ),
-            "good": (
-                "🙂 Na ji daɗin siyayya\n"
-                "Tsarin bot ɗin yana da kyau kuma mai sauƙi"
-            ),
-            "neutral": (
-                "😓 Ban gama fahimtar bot ɗin sosai ba\n"
-                "Amma ina ganin yana da amfani"
-            ),
-            "angry": (
-                "🤬 Wannan bot yana bani ciwon kai\n"
-                "Akwai buƙatar ku gyara tsarin kasuwancin ku"
-            )
-        }
-
-        user_replies = {
-            "very": "🥰 Mun gode sosai! Za mu ci gaba da faranta maka rai Insha Allah.",
-            "good": "😊 Mun gode da ra'ayinka! Za mu ƙara inganta tsarin.",
-            "neutral": "🤍 Mun gode. Idan kana da shawara, muna maraba da ita.",
-            "angry": "🙏 Muna baku haƙuri akan bacin ran da kuka samu. Za mu gyara Insha Allah."
+            "very": "😘 Gaskiya na ji daɗin siyayya da bot ɗinku",
+            "good": "🙂 Na ji daɗin siyayya",
+            "neutral": "😓 Ban gama fahimta sosai ba",
+            "angry": "🤬 Wannan bot yana bani ciwon kai"
         }
 
         admin_text = (
-            f"📣 FEEDBACK RECEIVED\n\n"
+            "📣 FEEDBACK RECEIVED\n\n"
             f"👤 User: {fname}\n"
             f"🆔 ID: {uid}\n"
-            f"📦 Order: {order_id}\n\n"
+            f"📦 Order: {order_id}\n"
+            f"💬 Mood: {mood}\n\n"
             f"{admin_messages.get(mood, mood)}"
         )
 
         try:
             bot.send_message(ADMIN_ID, admin_text)
-        except:
-            pass
+        except Exception as e:
+            print("⚠️ ADMIN SEND ERROR:", e)
 
+        # ================= REMOVE BUTTONS =================
         try:
             bot.edit_message_reply_markup(
                 chat_id=c.message.chat.id,
                 message_id=c.message.message_id,
                 reply_markup=None
             )
-        except:
-            pass
+        except Exception as e:
+            print("⚠️ EDIT MARKUP ERROR:", e)
 
-        bot.send_message(
-            uid,
-            user_replies.get(mood, "Mun gode da ra'ayinka 🙏")
-        )
-        return  
+        # ================= USER REPLY =================
+        user_replies = {
+            "very": "🥰 Mun gode sosai! Allah ya saka da alheri.",
+            "good": "😊 Mun gode! Za mu ƙara ingantawa.",
+            "neutral": "🤍 Mun gode da ra'ayinka.",
+            "angry": "🙏 Mun baku haƙuri, za mu gyara Insha Allah."
+        }
 
-    
+        bot.answer_callback_query(c.id, "✅ Mun karɓi ra'ayinka")
+        bot.send_message(uid, user_replies.get(mood, "Mun gode 🙏"))
+
+    except Exception as e:
+        print("🔥 CALLBACK FATAL ERROR:", e)
+        bot.answer_callback_query(c.id, "⚠️ Error ya faru", show_alert=True)   
+        
+
 
     # =====================
     # ADD MOVIE (ADMIN)

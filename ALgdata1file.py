@@ -1675,68 +1675,7 @@ def admin_feature_enabled():
     return row and row[0] == 1
 
 
-@bot.message_handler(func=lambda m: True)
-def handle_movie_search(m):
-    uid = m.from_user.id
-    query = m.text.strip()
 
-    state = user_states.get(uid)
-    if not state or state.get("action") != "_resend_search_":
-        return
-
-    # ===== CHECK IF USER HAS PURCHASED ANY MOVIE =====
-    total = conn.execute(
-        "SELECT COUNT(*) FROM user_movies WHERE user_id=%s",
-        (uid,)
-    ).fetchone()[0]
-
-    if total == 0:
-        bot.send_message(
-            uid,
-            "❌ You have not purchased any movies yet."
-        )
-        user_states.pop(uid, None)
-        return
-
-    # ===== SEARCH MATCH =====
-    rows = conn.execute(
-        """
-        SELECT DISTINCT i.id, i.title
-        FROM user_movies ui
-        JOIN items i ON i.id = ui.item_id
-        WHERE ui.user_id=%s
-          AND LOWER(i.title) LIKE LOWER(%s)
-        ORDER BY i.title ASC
-        """,
-        (uid, f"%{query}%")
-    ).fetchall()
-
-    if not rows:
-        bot.send_message(
-            uid,
-            "❌ No purchased movie matches that name."
-        )
-        user_states.pop(uid, None)
-        return
-
-    kb = InlineKeyboardMarkup()
-    for item_id, title in rows:
-        kb.add(
-            InlineKeyboardButton(
-                f"🎬 {title}",
-                callback_data=f"resend_one:{item_id}"
-            )
-        )
-
-    bot.send_message(
-        uid,
-        "✅ <b>Select a movie to resend:</b>",
-        parse_mode="HTML",
-        reply_markup=kb
-    )
-
-    # ===== EXIT SEARCH MODE =====
-    user_states.pop(uid, None)
 # ================= GETID (FILE_NAME SEARCH) =================
 @bot.message_handler(commands=["getid"])
 def getid_command(message):

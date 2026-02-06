@@ -467,15 +467,24 @@ def send_feedback_prompt(user_id, order_id):
         reply_markup=kb
     )
 
-# ========= PAYSTACK WEBHOOK (POSTGRES FIXED) =========
+# ========= PAYSTACK WEBHOOK (POSTGRES + TELEGRAM DEBUGS) =========
 @app.route("/webhook", methods=["POST"])
 def paystack_webhook():
 
-    print("🔔 PAYSTACK WEBHOOK RECEIVED")
+    def dbg(msg):
+        try:
+            bot.send_message(ADMIN_ID, f"🐞 <b>WEBHOOK DEBUG</b>\n{msg}", parse_mode="HTML")
+        except:
+            pass
 
+    dbg("🚀 Webhook endpoint HIT")
+
+    # ================= HEADERS =================
     signature = request.headers.get("x-paystack-signature")
+    dbg(f"🔐 Signature header: {signature}")
+
     if not signature:
-        print("❌ Missing Paystack signature")
+        dbg("❌ Missing x-paystack-signature")
         return "Missing signature", 401
 
     computed = hmac.new(
@@ -484,14 +493,21 @@ def paystack_webhook():
         hashlib.sha512
     ).hexdigest()
 
+    dbg(f"🧮 Computed signature: {computed}")
+
     if signature != computed:
-        print("❌ Invalid Paystack signature")
+        dbg("❌ Signature mismatch")
         return "Invalid signature", 401
 
+    # ================= PAYLOAD =================
     payload = request.json or {}
+    dbg(f"📦 Raw payload:\n<pre>{payload}</pre>")
+
     event = payload.get("event")
+    dbg(f"📣 Event: {event}")
 
     if event != "charge.success":
+        dbg("⚠️ Event ignored (not charge.success)")
         return "Ignored", 200
 
     data = payload.get("data", {})
@@ -499,9 +515,16 @@ def paystack_webhook():
     paid_amount = int(data.get("amount", 0) / 100)
     currency = data.get("currency")
 
+    dbg(
+        f"💳 Payment data\n"
+        f"• Reference: {reference}\n"
+        f"• Amount: ₦{paid_amount}\n"
+        f"• Currency: {currency}"
+    )
+
     cur = conn.cursor()
 
-    # ================= FETCH ORDER BY REFERENCE =================
+    # ================= FETCH ORDER =================
     cur.execute(
         """
         SELECT user_id, amount, paid
@@ -511,42 +534,52 @@ def paystack_webhook():
         (reference,)
     )
     row = cur.fetchone()
+    dbg(f"🗃 DB order fetch result: {row}")
 
     if not row:
         cur.close()
-        print("❌ Order not found:", reference)
+        dbg("❌ Order NOT FOUND in database")
         return "Order not found", 200
 
     user_id, expected_amount, paid = row
 
-    # ================= PREVENT DOUBLE PROCESS =================
+    # ================= CHECK STATUS =================
+    dbg(
+        f"📊 Order status\n"
+        f"• user_id: {user_id}\n"
+        f"• expected_amount: ₦{expected_amount}\n"
+        f"• paid flag: {paid}"
+    )
+
     if paid == 1:
         cur.close()
-        print("⚠️ Already processed:", reference)
+        dbg("⚠️ Order already processed")
         return "Already processed", 200
 
     if paid_amount != expected_amount or currency != "NGN":
         cur.close()
-        print("❌ Wrong payment:", reference)
+        dbg("❌ Amount or currency mismatch")
         return "Wrong payment", 200
 
-    # ================= CHECK ORDER ITEMS =================
+    # ================= ITEMS CHECK =================
     cur.execute(
         "SELECT COUNT(*) FROM order_items WHERE order_id=%s",
         (reference,)
     )
     items_count = cur.fetchone()[0]
+    dbg(f"🎬 Items count: {items_count}")
 
     if items_count == 0:
         cur.close()
-        print("❌ Empty order:", reference)
+        dbg("❌ Empty order_items")
         return "Empty order", 200
 
-    # ================= MARK AS PAID =================
+    # ================= MARK PAID =================
     cur.execute(
         "UPDATE orders SET paid=1 WHERE reference=%s",
         (reference,)
     )
+    dbg("✅ Order marked as PAID")
 
     # ================= USER INFO =================
     cur.execute(
@@ -558,6 +591,8 @@ def paystack_webhook():
         (user_id,)
     )
     u = cur.fetchone()
+    dbg(f"👤 User info row: {u}")
+
     if u:
         first_name, last_name, username = u
         full_name = f"{first_name or ''} {last_name or ''}".strip()
@@ -577,8 +612,12 @@ def paystack_webhook():
     titles = [r[0] for r in cur.fetchall()]
     titles_text = ", ".join(titles) if titles else "N/A"
 
+    dbg(f"🎥 Titles: {titles_text}")
+
     conn.commit()
     cur.close()
+
+    dbg("💾 DB commit successful")
 
     # ================= USER MESSAGE =================
     kb = InlineKeyboardMarkup()
@@ -603,7 +642,9 @@ def paystack_webhook():
         reply_markup=kb
     )
 
-    # ================= PAYMENT NOTIFICATION =================
+    dbg("📨 User notification SENT")
+
+    # ================= GROUP NOTIFY =================
     if PAYMENT_NOTIFY_GROUP:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -622,8 +663,11 @@ def paystack_webhook():
             parse_mode="HTML"
         )
 
-    print("✅ WEBHOOK PROCESSED:", reference)
+        dbg("📢 Group notification SENT")
+
+    dbg("🏁 WEBHOOK FINISHED SUCCESSFULLY")
     return "OK", 200
+
 
 
 

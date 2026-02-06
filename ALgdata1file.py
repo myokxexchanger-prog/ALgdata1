@@ -467,24 +467,28 @@ def send_feedback_prompt(user_id, order_id):
         reply_markup=kb
     )
 
-# ========= PAYSTACK WEBHOOK (POSTGRES + TELEGRAM DEBUGS) =========
+# ========= PAYSTACK WEBHOOK (POSTGRES + HARD DEBUGS) =========
 @app.route("/webhook", methods=["POST"])
 def paystack_webhook():
 
-    def dbg(msg):
+    def tdebug(msg):
         try:
-            bot.send_message(ADMIN_ID, f"🐞 <b>WEBHOOK DEBUG</b>\n{msg}", parse_mode="HTML")
-        except:
+            bot.send_message(
+                ADMIN_ID,
+                f"🐞 <b>WEBHOOK DEBUG</b>\n{msg}",
+                parse_mode="HTML"
+            )
+        except Exception:
             pass
 
-    dbg("🚀 Webhook endpoint HIT")
+    tdebug("🚀 Webhook endpoint HIT")
 
-    # ================= HEADERS =================
+    # ================= SIGNATURE =================
     signature = request.headers.get("x-paystack-signature")
-    dbg(f"🔐 Signature header: {signature}")
+    tdebug(f"🔐 Signature header: {signature}")
 
     if not signature:
-        dbg("❌ Missing x-paystack-signature")
+        tdebug("❌ Missing Paystack signature")
         return "Missing signature", 401
 
     computed = hmac.new(
@@ -493,93 +497,105 @@ def paystack_webhook():
         hashlib.sha512
     ).hexdigest()
 
-    dbg(f"🧮 Computed signature: {computed}")
+    tdebug(f"🧮 Computed signature:\n{computed}")
 
     if signature != computed:
-        dbg("❌ Signature mismatch")
+        tdebug("❌ INVALID SIGNATURE")
         return "Invalid signature", 401
 
     # ================= PAYLOAD =================
     payload = request.json or {}
-    dbg(f"📦 Raw payload:\n<pre>{payload}</pre>")
+    tdebug(f"📦 Raw payload:\n<pre>{payload}</pre>")
 
     event = payload.get("event")
-    dbg(f"📣 Event: {event}")
+    tdebug(f"📢 Event: {event}")
 
     if event != "charge.success":
-        dbg("⚠️ Event ignored (not charge.success)")
+        tdebug("ℹ️ Event ignored")
         return "Ignored", 200
 
     data = payload.get("data", {})
-    reference = data.get("reference")
-    paid_amount = int(data.get("amount", 0) / 100)
-    currency = data.get("currency")
 
-    dbg(
-        f"💳 Payment data\n"
-        f"• Reference: {reference}\n"
+    raw_reference = data.get("reference")
+    currency = data.get("currency")
+    paid_amount = int(data.get("amount", 0) / 100)
+
+    tdebug(
+        f"💰 Payment data\n"
+        f"• Raw reference: {raw_reference}\n"
         f"• Amount: ₦{paid_amount}\n"
         f"• Currency: {currency}"
     )
 
+    # ================= FIX REFERENCE =================
+    metadata = data.get("metadata", {}) or {}
+    order_id = metadata.get("order_id")
+
+    if not order_id and raw_reference:
+        order_id = raw_reference.split("_")[0]
+
+    tdebug(f"🆔 Parsed order_id: {order_id}")
+
+    if not order_id:
+        tdebug("❌ order_id NOT FOUND")
+        return "Order ID missing", 200
+
+    # ================= DB =================
     cur = conn.cursor()
 
-    # ================= FETCH ORDER =================
     cur.execute(
         """
         SELECT user_id, amount, paid
         FROM orders
-        WHERE reference=%s
+        WHERE id=%s
         """,
-        (reference,)
+        (order_id,)
     )
     row = cur.fetchone()
-    dbg(f"🗃 DB order fetch result: {row}")
 
     if not row:
+        tdebug(f"❌ Order NOT FOUND in DB: {order_id}")
         cur.close()
-        dbg("❌ Order NOT FOUND in database")
         return "Order not found", 200
 
     user_id, expected_amount, paid = row
 
-    # ================= CHECK STATUS =================
-    dbg(
-        f"📊 Order status\n"
-        f"• user_id: {user_id}\n"
-        f"• expected_amount: ₦{expected_amount}\n"
-        f"• paid flag: {paid}"
+    tdebug(
+        f"📄 Order found\n"
+        f"• User ID: {user_id}\n"
+        f"• Expected: ₦{expected_amount}\n"
+        f"• Paid flag: {paid}"
     )
 
     if paid == 1:
+        tdebug("⚠️ Order already processed")
         cur.close()
-        dbg("⚠️ Order already processed")
         return "Already processed", 200
 
     if paid_amount != expected_amount or currency != "NGN":
+        tdebug("❌ Amount or currency mismatch")
         cur.close()
-        dbg("❌ Amount or currency mismatch")
         return "Wrong payment", 200
 
-    # ================= ITEMS CHECK =================
+    # ================= ITEMS =================
     cur.execute(
-        "SELECT COUNT(*) FROM order_items WHERE order_id=%s",
-        (reference,)
+        "SELECT file_id FROM order_items WHERE order_id=%s",
+        (order_id,)
     )
-    items_count = cur.fetchone()[0]
-    dbg(f"🎬 Items count: {items_count}")
+    items = cur.fetchall()
 
-    if items_count == 0:
+    tdebug(f"🎬 Items count: {len(items)}")
+
+    if not items:
+        tdebug("❌ Order has NO items")
         cur.close()
-        dbg("❌ Empty order_items")
         return "Empty order", 200
 
-    # ================= MARK PAID =================
+    # ================= MARK AS PAID =================
     cur.execute(
-        "UPDATE orders SET paid=1 WHERE reference=%s",
-        (reference,)
+        "UPDATE orders SET paid=1 WHERE id=%s",
+        (order_id,)
     )
-    dbg("✅ Order marked as PAID")
 
     # ================= USER INFO =================
     cur.execute(
@@ -591,7 +607,6 @@ def paystack_webhook():
         (user_id,)
     )
     u = cur.fetchone()
-    dbg(f"👤 User info row: {u}")
 
     if u:
         first_name, last_name, username = u
@@ -599,7 +614,7 @@ def paystack_webhook():
     else:
         full_name = "Unknown User"
 
-    # ================= ITEMS TITLES =================
+    # ================= TITLES =================
     cur.execute(
         """
         SELECT i.title
@@ -607,24 +622,22 @@ def paystack_webhook():
         JOIN items i ON i.id = oi.item_id
         WHERE oi.order_id=%s
         """,
-        (reference,)
+        (order_id,)
     )
     titles = [r[0] for r in cur.fetchall()]
     titles_text = ", ".join(titles) if titles else "N/A"
 
-    dbg(f"🎥 Titles: {titles_text}")
-
     conn.commit()
     cur.close()
 
-    dbg("💾 DB commit successful")
+    tdebug("✅ DB updated, sending messages")
 
     # ================= USER MESSAGE =================
     kb = InlineKeyboardMarkup()
     kb.add(
         InlineKeyboardButton(
             "⬇️ DOWNLOAD NOW",
-            callback_data=f"deliver:{reference}"
+            callback_data=f"deliver:{order_id}"
         )
     )
 
@@ -635,16 +648,16 @@ def paystack_webhook():
 👤 <b>Name:</b> {full_name}
 🎬 <b>Items:</b> {titles_text}
 
-🗃 <b>Order ID:</b> <code>{reference}</code>
+🗃 <b>Order ID:</b>
+<code>{order_id}</code>
+
 💳 <b>Amount:</b> ₦{paid_amount}
 """,
         parse_mode="HTML",
         reply_markup=kb
     )
 
-    dbg("📨 User notification SENT")
-
-    # ================= GROUP NOTIFY =================
+    # ================= ADMIN NOTIFICATION =================
     if PAYMENT_NOTIFY_GROUP:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -656,17 +669,16 @@ def paystack_webhook():
 🆔 User ID: <code>{user_id}</code>
 
 🎬 Items: {titles_text}
-🗃 Order ID: <code>{reference}</code>
+🗃 Order ID: <code>{order_id}</code>
 💰 Amount: ₦{paid_amount}
 ⏰ Time: {now}
 """,
             parse_mode="HTML"
         )
 
-        dbg("📢 Group notification SENT")
-
-    dbg("🏁 WEBHOOK FINISHED SUCCESSFULLY")
+    tdebug("🎯 WEBHOOK FULLY PROCESSED")
     return "OK", 200
+
 
 
 

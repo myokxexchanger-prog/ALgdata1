@@ -3287,19 +3287,7 @@ def all_callbacks(c):
             parse_mode="HTML"
         )
         return
-    # =====================
-    # OPEN PAID ORDERS
-    # =====================
-    if data == "paid_orders":
-        text, kb = build_paid_orders_view(uid, page=0)
-        bot.edit_message_text(
-            chat_id=uid,
-            message_id=c.message.message_id,
-            text=text,
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-        return
+    
 
     # =====================
     # CHECKOUT (GROUPITEM LOGIC)

@@ -3654,25 +3654,6 @@ def all_callbacks(c):
 
     
 
-   
-    # ================= MY MOVIES =================
-    if data == "my_movies":
-        kb = InlineKeyboardMarkup()
-
-        kb.add(InlineKeyboardButton("🔍Check movie", callback_data="_resend_search_"))
-        
-        bot.send_message(
-            uid,
-            "🎥 <b>PAID MOVIES</b>\n"
-            "Your previously purchased movies will be resent to you.\n\n"
-            "🔍 If you want to search for a movie you’ve previously purchased, type its name or the first letter(s) of the title Example: (Dan) = Dan Tawaye:",
-            parse_mode="HTML",
-            reply_markup=kb
-        )
-
-        bot.answer_callback_query(c.id)
-        return
-
 
     # ================= 🔍 RESEND SEARCH (STATE SETTER) =================
     if data == "_resend_search_":
@@ -4228,7 +4209,28 @@ def all_callbacks(c):
 
         return
 
-    # go home
+ 
+   
+    # ================= MY MOVIES =================
+    if data == "my_movies":
+        kb = InlineKeyboardMarkup()
+
+        kb.add(InlineKeyboardButton("🔍Check movie", callback_data="_resend_search_"))
+        
+        bot.send_message(
+            uid,
+            "🎥 <b>PAID MOVIES</b>\n"
+            "Your previously purchased movies will be resent to you.\n\n"
+            "🔍 If you want to search for a movie you’ve previously purchased, type its name or the first letter(s) of the title Example: (Dan) = Dan Tawaye:",
+            parse_mode="HTML",
+            reply_markup=kb
+        )
+
+        bot.answer_callback_query(c.id)
+        return
+   
+
+# go home
     if data == "go_home":
         try:
             bot.answer_callback_query(callback_query_id=c.id)

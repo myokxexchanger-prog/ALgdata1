@@ -1305,7 +1305,52 @@ def start(message):
         reply_markup=reply_menu(uid)
     )
 
+@bot.message_handler(
+    content_types=["text"],
+    func=lambda m: user_states.get(m.from_user.id, {}).get("action") == "_resend_search_"
+)
+def handle_resend_search(m):
+    uid = m.from_user.id
+    query = m.text.strip()
 
+    if query.startswith("/"):
+        return
+
+    rows = conn.execute(
+        """
+        SELECT DISTINCT i.id, i.title
+        FROM user_movies ui
+        JOIN items i ON i.id = ui.item_id
+        WHERE ui.user_id=%s
+          AND LOWER(i.title) LIKE LOWER(%s)
+        ORDER BY i.title ASC
+        LIMIT 10
+        """,
+        (uid, f"%{query}%")
+    ).fetchall()
+
+    if not rows:
+        bot.send_message(uid, "❌ No matching movie found.")
+        user_states.pop(uid, None)
+        return
+
+    kb = InlineKeyboardMarkup()
+    for item_id, title in rows:
+        kb.add(
+            InlineKeyboardButton(
+                f"🎬 {title}",
+                callback_data=f"resend_one:{item_id}"
+            )
+        )
+
+    bot.send_message(
+        uid,
+        "✅ <b>Select a movie to resend:</b>",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+
+    user_states.pop(uid, None)
 
 
 # ======================================

@@ -3031,7 +3031,6 @@ def pay_all_unpaid(call):
 
     cur.close()
 
-
 import uuid
 from datetime import datetime
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -3183,7 +3182,6 @@ def series_finalize(m):
 
     poster_file_id = m.photo[-1].file_id
 
-    # ✅ CURSOR SAFE
     cur = conn.cursor()
 
     cur.execute(
@@ -3254,6 +3252,8 @@ def series_finalize(m):
 
     bot.send_message(uid, "🎉 Series an adana dukka series lafiya.")
     del series_sessions[uid]
+
+
 @bot.callback_query_handler(func=lambda c: True)
 def all_callbacks(c):
     uid = str(c.from_user.id)

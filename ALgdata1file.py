@@ -731,7 +731,23 @@ def deliver_items(call):
     send_feedback_prompt(user_id, order_id)
 
 
+@bot.message_handler(func=lambda m: True)
+def DEBUG_ALL_MESSAGES(m):
+    try:
+        uid = m.from_user.id
+        text = m.text
 
+        state = user_states.get(uid)
+
+        bot.send_message(
+            ADMIN_ID,
+            f"🧪 DEBUG MESSAGE\n"
+            f"User: {uid}\n"
+            f"Text: {text}\n"
+            f"State: {state}"
+        )
+    except Exception as e:
+        bot.send_message(ADMIN_ID, f"❌ DEBUG ERROR: {e}")
  #=========================================================
 # ========= HARD START HOWTO (DEEPLINK LOCK) ===============
 # =========================================================
@@ -1305,17 +1321,30 @@ def start(message):
         reply_markup=reply_menu(uid)
     )
 
-@bot.message_handler(
-    content_types=["text"],
-    func=lambda m: user_states.get(m.from_user.id, {}).get("action") == "_resend_search_"
-)
+
+@bot.message_handler(func=lambda m: user_states.get(m.from_user.id, {}).get("action") == "_resend_search_")
 def handle_resend_search(m):
     uid = m.from_user.id
     query = m.text.strip()
 
-    if query.startswith("/"):
+    # === DEBUG ===
+    bot.send_message(ADMIN_ID, f"🔍 SEARCH QUERY from {uid}: {query}")
+
+    # 1. Check if user ever bought movies
+    row = conn.execute(
+        "SELECT COUNT(*) FROM user_movies WHERE user_id=%s",
+        (uid,)
+    ).fetchone()
+
+    if row[0] == 0:
+        bot.send_message(
+            uid,
+            "❌ You have not purchased any movies yet."
+        )
+        user_states.pop(uid, None)
         return
 
+    # 2. Search matching movies (PARTIAL MATCH)
     rows = conn.execute(
         """
         SELECT DISTINCT i.id, i.title
@@ -1330,7 +1359,10 @@ def handle_resend_search(m):
     ).fetchall()
 
     if not rows:
-        bot.send_message(uid, "❌ No matching movie found.")
+        bot.send_message(
+            uid,
+            "❌ No purchased movie matches that name."
+        )
         user_states.pop(uid, None)
         return
 
@@ -1338,21 +1370,20 @@ def handle_resend_search(m):
     for item_id, title in rows:
         kb.add(
             InlineKeyboardButton(
-                f"🎬 {title}",
+                title,
                 callback_data=f"resend_one:{item_id}"
             )
         )
 
     bot.send_message(
         uid,
-        "✅ <b>Select a movie to resend:</b>",
+        "🎬 <b>Select a movie to resend</b>",
         parse_mode="HTML",
         reply_markup=kb
     )
 
+    # EXIT STAGE (NO TRY AGAIN)
     user_states.pop(uid, None)
-
-
 # ======================================
 # TEXT BUTTON HANDLER (GLOBAL SAFE)
 # ======================================

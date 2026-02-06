@@ -901,6 +901,26 @@ def post_to_channel(m):
 
     bot.send_message(m.chat.id, "✅ An tura post zuwa channel.")
 
+@bot.message_handler(func=lambda m: True)
+def DEBUG_ALL_MESSAGES(m):
+    try:
+        uid = m.from_user.id
+        text = m.text
+
+        state = user_states.get(uid)
+
+        bot.send_message(
+            ADMIN_ID,
+            f"🧪 DEBUG MESSAGE\n"
+            f"User: {uid}\n"
+            f"Text: {text}\n"
+            f"State: {state}"
+        )
+    except Exception as e:
+        bot.send_message(ADMIN_ID, f"❌ DEBUG ERROR: {e}")
+
+
+
 # ======================================================
 # DEEPLINK HANDLER
 

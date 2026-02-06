@@ -3826,7 +3826,6 @@ def all_callbacks(c):
 
 
 
-    
    
 
     # =====================
@@ -3842,9 +3841,7 @@ def all_callbacks(c):
             reply_markup=kb,
             parse_mode="HTML"
         )
-        bot.answer_callback_query(c.id)
         return
-
 
     # =====================
     # REMOVE SINGLE UNPAID
@@ -3853,7 +3850,6 @@ def all_callbacks(c):
         oid = data.split(":", 1)[1]
 
         try:
-            # tabbatar order na user ne kuma unpaid
             cur = conn.cursor()
             cur.execute(
                 """
@@ -3867,13 +3863,11 @@ def all_callbacks(c):
                 cur.close()
                 return
 
-            # 1️⃣ goge order_items farko
             cur.execute(
                 "DELETE FROM order_items WHERE order_id=%s",
                 (oid,)
             )
 
-            # 2️⃣ goge order
             cur.execute(
                 "DELETE FROM orders WHERE id=%s",
                 (oid,)
@@ -3882,7 +3876,7 @@ def all_callbacks(c):
             conn.commit()
             cur.close()
 
-        except Exception as e:
+        except Exception:
             conn.rollback()
             bot.answer_callback_query(c.id, "❌ Failed to remove")
             return
@@ -3905,7 +3899,6 @@ def all_callbacks(c):
         try:
             cur = conn.cursor()
 
-            # 1️⃣ goge order_items na unpaid orders
             cur.execute(
                 """
                 DELETE FROM order_items
@@ -3917,7 +3910,6 @@ def all_callbacks(c):
                 (uid,)
             )
 
-            # 2️⃣ goge orders
             cur.execute(
                 """
                 DELETE FROM orders
@@ -3945,9 +3937,8 @@ def all_callbacks(c):
         bot.answer_callback_query(c.id, "🗑 All unpaid orders deleted")
         return
 
-    
     # =====================
-    # OPEN PAID ORDERS (PAGE 0)
+    # OPEN PAID ORDERS
     # =====================
     if data == "paid_orders":
         text, kb = build_paid_orders_view(uid, page=0)
@@ -3958,32 +3949,29 @@ def all_callbacks(c):
             reply_markup=kb,
             parse_mode="HTML"
         )
-        bot.answer_callback_query(c.id)
         return
 
-    #
+    # =====================
+    # ALL FILMS PAGINATION
+    # =====================
     if data == "allfilms_prev":
         sess = allfilms_sessions.get(uid)
         if not sess:
-            bot.answer_callback_query(c.id)
             return
+
         idx = sess["index"] - 1
         if idx >= 0:
             send_allfilms_page(uid, idx)
-        bot.answer_callback_query(c.id)
         return
-
 
     # ================= FEEDBACK =================
     if data.startswith("feedback:"):
         parts = data.split(":")
         if len(parts) != 3:
-            bot.answer_callback_query(c.id)
             return
 
         mood, order_id = parts[1], parts[2]
 
-        # 1️⃣ Tabbatar order paid ne kuma na user
         row = conn.execute(
             "SELECT 1 FROM orders WHERE id=%s AND user_id=%s AND paid=1",
             (order_id, uid)
@@ -3997,7 +3985,6 @@ def all_callbacks(c):
             )
             return
 
-        # 2️⃣ Hana feedback sau biyu
         exists = conn.execute(
             "SELECT 1 FROM feedbacks WHERE order_id=%s",
             (order_id,)
@@ -4011,14 +3998,12 @@ def all_callbacks(c):
             )
             return
 
-        # 3️⃣ Ajiye feedback
         conn.execute(
             "INSERT INTO feedbacks (order_id, user_id, mood) VALUES (%s,%s,%s)",
             (order_id, uid, mood)
         )
         conn.commit()
 
-        # 4️⃣ Samo sunan user
         try:
             chat = bot.get_chat(uid)
             fname = chat.first_name or "User"
@@ -4052,7 +4037,6 @@ def all_callbacks(c):
             "angry": "🙏 Muna baku haƙuri akan bacin ran da kuka samu. Za mu gyara Insha Allah."
         }
 
-        # 5️⃣ Tura wa ADMIN
         admin_text = (
             f"📣 FEEDBACK RECEIVED\n\n"
             f"👤 User: {fname}\n"
@@ -4066,7 +4050,6 @@ def all_callbacks(c):
         except:
             pass
 
-        # 6️⃣ Goge inline buttons
         try:
             bot.edit_message_reply_markup(
                 chat_id=c.message.chat.id,
@@ -4076,12 +4059,12 @@ def all_callbacks(c):
         except:
             pass
 
-        bot.answer_callback_query(c.id)
         bot.send_message(
             uid,
             user_replies.get(mood, "Mun gode da ra'ayinka 🙏")
         )
-        return
+        return  
+
     
 
     # =====================

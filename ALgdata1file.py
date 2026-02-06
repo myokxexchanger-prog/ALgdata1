@@ -731,67 +731,7 @@ def deliver_items(call):
     send_feedback_prompt(user_id, order_id)
 
 
-@bot.message_handler(func=lambda m: user_states.get(m.from_user.id, {}).get("action") == "_resend_search_")
-def handle_resend_search(m):
-    uid = m.from_user.id
-    query = m.text.strip()
 
-    bot.send_message(ADMIN_ID, f"🔍 SEARCH QUERY from {uid}: {query}")
-
-    # 1️⃣ Check if user has any PAID orders
-    row = conn.execute(
-        "SELECT COUNT(*) FROM orders WHERE user_id=%s AND paid=1",
-        (uid,)
-    ).fetchone()
-
-    if row[0] == 0:
-        bot.send_message(
-            uid,
-            "❌ You have not purchased any movies yet."
-        )
-        user_states.pop(uid, None)
-        return
-
-    # 2️⃣ Search delivered movies (SAFE JOIN)
-    rows = conn.execute(
-        """
-        SELECT DISTINCT i.id, i.title
-        FROM user_movies um
-        JOIN items i ON i.id = um.item_id
-        WHERE um.user_id=%s
-          AND LOWER(i.title) LIKE LOWER(%s)
-        ORDER BY i.title ASC
-        LIMIT 10
-        """,
-        (uid, f"%{query}%")
-    ).fetchall()
-
-    if not rows:
-        bot.send_message(
-            uid,
-            "❌ No movie you purchased matches that name."
-        )
-        user_states.pop(uid, None)
-        return
-
-    kb = InlineKeyboardMarkup()
-    for item_id, title in rows:
-        kb.add(
-            InlineKeyboardButton(
-                title,
-                callback_data=f"resend_one:{item_id}"
-            )
-        )
-
-    bot.send_message(
-        uid,
-        "🎬 <b>Select a movie to resend</b>",
-        parse_mode="HTML",
-        reply_markup=kb
-    )
-
-    # 🚪 EXIT SEARCH MODE
-    user_states.pop(uid, None)
  #=========================================================
 # ========= HARD START HOWTO (DEEPLINK LOCK) ===============
 # =========================================================

@@ -645,7 +645,7 @@ def deliver_items(call):
         kb = InlineKeyboardMarkup()
         kb.add(
             InlineKeyboardButton(
-                "📽 Paid Movies",
+                "📽PAID MOVIES",
                 callback_data="my_movies"
             )
         )
@@ -3351,7 +3351,7 @@ def all_callbacks(c):
         # =====================
         if owned_count > 0 and not groups:
             kb = InlineKeyboardMarkup()
-            kb.add(InlineKeyboardButton("📽 Paid Movies", callback_data="my_movies"))
+            kb.add(InlineKeyboardButton("📽PAID MOVIES", callback_data="my_movies"))
 
             bot.send_message(
                 uid,
@@ -4231,25 +4231,27 @@ def all_callbacks(c):
         return
 
  
-   
+  
+
     # ================= MY MOVIES =================
     if data == "my_movies":
         kb = InlineKeyboardMarkup()
-
         kb.add(InlineKeyboardButton("🔍Check movie", callback_data="_resend_search_"))
-        
-        bot.send_message(
-            uid,
-            "🎥 <b>PAID MOVIES</b>\n"
-            "Your previously purchased movies will be resent to you.\n\n"
-            "🔍 If you want to search for a movie you’ve previously purchased, type its name or the first letter(s) of the title Example: (Dan) = Dan Tawaye:",
+
+        bot.edit_message_text(
+            chat_id=c.message.chat.id,
+            message_id=c.message.message_id,
+            text=(
+                "🎥 <b>PAID MOVIES</b>\n"
+                "Your previously purchased movies will be resent to you.\n\n"
+                "🔍 If you want to search for a movie you’ve previously purchased, type its name or the first letter(s) of the title Example: (Dan) = Dan Tawaye:"
+            ),
             parse_mode="HTML",
             reply_markup=kb
         )
 
         bot.answer_callback_query(c.id)
-        return
-   
+        return 
 
 # go home
     if data == "go_home":

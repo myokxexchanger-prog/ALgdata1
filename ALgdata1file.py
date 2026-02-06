@@ -3255,7 +3255,17 @@ def series_finalize(m):
 @bot.callback_query_handler(func=lambda c: True)
 def all_callbacks(c):
     uid = c.from_user.id  # ✅ INT
-    data = c.data
+    data = c.data 
+
+
+    # 🔎 DEBUG – aika a Telegram (ADMIN kawai)
+    try:
+        if uid == ADMIN_ID:
+            bot.send_message(ADMIN_ID, f"🧪 CALLBACK: {data}")
+    except:
+        pass
+
+    
 
     bot.answer_callback_query(c.id)
 

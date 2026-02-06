@@ -3712,7 +3712,6 @@ def all_callbacks(c):
         bot.answer_callback_query(c.id)
         return
 
- 
 
     # =====================
     # PENDING / UNPAID ORDERS
@@ -3726,7 +3725,6 @@ def all_callbacks(c):
             reply_markup=kb,
             parse_mode="HTML"
         )
-
         bot.answer_callback_query(c.id)
         return
 
@@ -3734,7 +3732,12 @@ def all_callbacks(c):
     # ================= MY MOVIES =================
     if data == "my_movies":
         kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("🔍 Check movie", callback_data="_resend_search_"))
+        kb.add(
+            InlineKeyboardButton(
+                "🔍 Check movie",
+                callback_data="_resend_search_"
+            )
+        )
 
         bot.edit_message_text(
             chat_id=c.message.chat.id,
@@ -3751,17 +3754,16 @@ def all_callbacks(c):
         bot.answer_callback_query(c.id)
         return
 
-    
 
     # ================= 🔍 RESEND SEARCH (STATE SETTER) =================
     if data == "_resend_search_":
-        # ✅ NAN NE MATSALAR DA GYARA
         user_states[uid] = {"action": "_resend_search_"}
 
         bot.send_message(
             uid,
             "🔍 <b>Checking Mode</b>\n"
-            "If you want to search for a movie you’ve previously purchased, type its name or the first letter(s) of the title Example: (Dan) = Dan Tawaye:",
+            "Type the movie name or first letter(s).\n"
+            "Example: <b>Dan</b> = Dan Tawaye",
             parse_mode="HTML"
         )
 
@@ -3769,11 +3771,10 @@ def all_callbacks(c):
         return
 
 
-
     # ================= RESEND BY DAYS =================
     if data.startswith("resend:"):
         try:
-            days = int(data.split(":")[1])
+            days = int(data.split(":", 1)[1])
         except:
             bot.answer_callback_query(c.id, "❌ Invalid time.")
             return
@@ -3787,7 +3788,7 @@ def all_callbacks(c):
             bot.send_message(
                 uid,
                 "⚠️ You’ve reached the maximum resend limit (10 times).\n"
-                "Please purchase the movie again to have it sent to you."
+                "Please purchase the movie again."
             )
             bot.answer_callback_query(c.id)
             return
@@ -3809,14 +3810,11 @@ def all_callbacks(c):
             bot.answer_callback_query(c.id)
             return
 
-        for item_id, file_id, title in rows:
+        for _, file_id, title in rows:
             try:
-                try:
-                    bot.send_video(uid, file_id, caption=f"🎬 {title}")
-                except:
-                    bot.send_document(uid, file_id, caption=f"🎬 {title}")
-            except Exception as e:
-                print("Resend error:", e)
+                bot.send_video(uid, file_id, caption=f"🎬 {title}")
+            except:
+                bot.send_document(uid, file_id, caption=f"🎬 {title}")
 
         conn.execute(
             "INSERT INTO resend_logs (user_id, used_at) VALUES (%s, NOW())",
@@ -3826,12 +3824,12 @@ def all_callbacks(c):
 
         bot.send_message(
             uid,
-            f"✅ The movies have been resent successfully. ({len(rows)}).\n"
-            "⚠️ The movies have been resent successfully,\n\n"
-            "Please note: you can't receive them up to 10 times."
+            f"✅ Movies resent successfully ({len(rows)}).\n"
+            "⚠️ Limit: 10 times only."
         )
         bot.answer_callback_query(c.id)
         return
+
 
     # ================= RESEND ONE ITEM =================
     if data.startswith("resend_one:"):
@@ -3849,8 +3847,7 @@ def all_callbacks(c):
         if used >= 10:
             bot.send_message(
                 uid,
-                "⚠️ You’ve reached the maximum resend limit (10 times).\n"
-                "Please purchase the movie again to have it sent to you."
+                "⚠️ You’ve reached the maximum resend limit (10 times)."
             )
             bot.answer_callback_query(c.id)
             return
@@ -3867,19 +3864,15 @@ def all_callbacks(c):
         ).fetchone()
 
         if not row:
-            bot.answer_callback_query(c.id, "❌ Ba a samu fim ba.")
+            bot.answer_callback_query(c.id, "❌ Movie not found.")
             return
 
         file_id, title = row
 
         try:
-            try:
-                bot.send_video(uid, file_id, caption=f"🎬 {title}")
-            except:
-                bot.send_document(uid, file_id, caption=f"🎬 {title}")
+            bot.send_video(uid, file_id, caption=f"🎬 {title}")
         except:
-            bot.answer_callback_query(c.id, "❌ Kuskure wajen tura fim.")
-            return
+            bot.send_document(uid, file_id, caption=f"🎬 {title}")
 
         conn.execute(
             "INSERT INTO resend_logs (user_id, used_at) VALUES (%s, NOW())",
@@ -3889,10 +3882,11 @@ def all_callbacks(c):
 
         bot.answer_callback_query(
             c.id,
-            "✅ The movies have been resent successfully.\n"
-            "⚠️ Please note: you can only receive them up to 10 times."
+            "✅ Movie resent successfully.\n⚠️ Limit: 10 times."
         )
         return
+
+   
 
      # ================= START SERIES MODE =================
     if data == "start_series":
@@ -4316,25 +4310,7 @@ def all_callbacks(c):
  
   
 
-    # ================= MY MOVIES =================
-    if data == "my_movies":
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("🔍Check movie", callback_data="_resend_search_"))
-
-        bot.edit_message_text(
-            chat_id=c.message.chat.id,
-            message_id=c.message.message_id,
-            text=(
-                "🎥 <b>PAID MOVIES</b>\n"
-                "Your previously purchased movies will be resent to you.\n\n"
-                "🔍 If you want to search for a movie you’ve previously purchased, type its name or the first letter(s) of the title Example: (Dan) = Dan Tawaye:"
-            ),
-            parse_mode="HTML",
-            reply_markup=kb
-        )
-
-        bot.answer_callback_query(c.id)
-        return 
+    
 
 # go home
     if data == "go_home":

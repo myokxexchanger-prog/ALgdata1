@@ -3652,6 +3652,20 @@ def all_callbacks(c):
 
    
 
+
+    # =====================
+    # PENDING / UNPAID ORDERS
+    # =====================
+    if data == "myorders_new":
+        text, kb = build_unpaid_orders_view(uid, page=0)
+        bot.edit_message_text(
+            chat_id=c.message.chat.id,
+            message_id=c.message.message_id,
+            text=text,
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+        return
     
 
 

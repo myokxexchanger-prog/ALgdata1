@@ -3049,7 +3049,7 @@ series_sessions = {}
     func=lambda m: m.from_user.id in series_sessions
 )
 def series_collect_files(m):
-    uid = m.from_user.id
+    uid = m.from_user.id  # ✅ INT
     sess = series_sessions.get(uid)
 
     if not sess or sess.get("stage") != "collect":
@@ -3181,7 +3181,6 @@ def series_finalize(m):
         return
 
     poster_file_id = m.photo[-1].file_id
-
     cur = conn.cursor()
 
     cur.execute(
@@ -3253,17 +3252,15 @@ def series_finalize(m):
     bot.send_message(uid, "🎉 Series an adana dukka series lafiya.")
     del series_sessions[uid]
 
-
 @bot.callback_query_handler(func=lambda c: True)
 def all_callbacks(c):
-    uid = str(c.from_user.id)
+    uid = c.from_user.id  # ✅ INT
     data = c.data
 
-    # 🔑 WANNAN KADAI NA GYARA KOMAI
     bot.answer_callback_query(c.id)
 
     if data == "groupitems":
-        if uid != str(ADMIN_ID):
+        if uid != ADMIN_ID:
             bot.answer_callback_query(c.id, "Ba izini.")
             return
 
@@ -3273,7 +3270,7 @@ def all_callbacks(c):
         }
 
         bot.send_message(
-            int(uid),
+            uid,
             "📺 <b>Series Mode ya fara</b>\n\n"
             "Ka fara turo videos/documents.\n"
             "Idan ka gama rubuta <b>Done</b>.",

@@ -2366,7 +2366,7 @@ def start_handler(msg):
 
     bot.send_message(msg.chat.id, "Welcome!")
 
-# ========= BUYD (ITEM ONLY | DEEP LINK → DM) =========
+# ========= BUYD (ITEM ONLY | DEEP LINK → DM | DEBUG) =========
 from psycopg2.extras import RealDictCursor
 import uuid
 import time
@@ -2376,20 +2376,30 @@ def groupitem_deeplink_handler(msg):
     uid = msg.from_user.id
     user_name = msg.from_user.first_name or "Customer"
 
+    bot.send_message(uid, "🧪 DEBUG: Handler triggered")
+
     # ========= PARSE ITEM IDS =========
     try:
         raw = msg.text.split("groupitem_", 1)[1]
         sep = "_" if "_" in raw else ","
         item_ids = [int(x) for x in raw.split(sep) if x.strip().isdigit()]
-    except Exception:
+        bot.send_message(uid, f"🧪 DEBUG: Parsed item_ids = {item_ids}")
+    except Exception as e:
+        bot.send_message(uid, f"❌ DEBUG: Parse failed → {e}")
         return
 
     if not item_ids:
+        bot.send_message(uid, "❌ DEBUG: item_ids empty")
         return
 
-    # ✅ SAFE CONNECTION (NEON SLEEP FIX)
-    conn = get_conn()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    # ========= DB CONNECT =========
+    try:
+        conn = get_conn()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        bot.send_message(uid, "🧪 DEBUG: DB connected")
+    except Exception as e:
+        bot.send_message(uid, f"❌ DEBUG: DB connect failed → {e}")
+        return
 
     # ========= FETCH ITEMS =========
     try:
@@ -2403,19 +2413,25 @@ def groupitem_deeplink_handler(msg):
             tuple(item_ids)
         )
         items = cur.fetchall()
-    except Exception:
+        bot.send_message(uid, f"🧪 DEBUG: Items fetched = {len(items)}")
+    except Exception as e:
+        bot.send_message(uid, f"❌ DEBUG: Fetch items failed → {e}")
         cur.close()
         conn.close()
         return
 
     if not items:
+        bot.send_message(uid, "❌ DEBUG: No items found in DB")
         cur.close()
         conn.close()
         return
 
     # ========= FILE_ID REQUIRED =========
     items = [i for i in items if i.get("file_id")]
+    bot.send_message(uid, f"🧪 DEBUG: Items with file_id = {len(items)}")
+
     if not items:
+        bot.send_message(uid, "❌ DEBUG: All items missing file_id")
         cur.close()
         conn.close()
         return
@@ -2434,19 +2450,20 @@ def groupitem_deeplink_handler(msg):
             (uid, *item_ids_clean)
         )
         owned = cur.fetchone()
-    except Exception:
+        bot.send_message(uid, f"🧪 DEBUG: Ownership check = {bool(owned)}")
+    except Exception as e:
+        bot.send_message(uid, f"❌ DEBUG: Ownership query failed → {e}")
         cur.close()
         conn.close()
         return
 
     if owned:
+        bot.send_message(uid, "🧪 DEBUG: User already owns item(s)")
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("📽 PAID MOVIES", callback_data="my_movies"))
         bot.send_message(
             uid,
-            "✅ You have already purchased this movie.\n\n"
-            "Please check your *Paid Movies* to download it again.",
-            parse_mode="Markdown",
+            "✅ You have already purchased this movie.",
             reply_markup=kb
         )
         cur.close()
@@ -2463,7 +2480,10 @@ def groupitem_deeplink_handler(msg):
     total = sum(groups.values())
     item_count = len(items)
 
+    bot.send_message(uid, f"🧪 DEBUG: Groups={len(groups)} Total={total}")
+
     if total <= 0:
+        bot.send_message(uid, "❌ DEBUG: Total <= 0")
         cur.close()
         conn.close()
         return
@@ -2485,15 +2505,19 @@ def groupitem_deeplink_handler(msg):
             (uid, *item_ids_clean, len(item_ids_clean))
         )
         row = cur.fetchone()
-    except Exception:
+        bot.send_message(uid, f"🧪 DEBUG: Existing order = {row}")
+    except Exception as e:
+        bot.send_message(uid, f"❌ DEBUG: Order lookup failed → {e}")
         cur.close()
         conn.close()
         return
 
     if row:
         order_id = row["id"]
+        bot.send_message(uid, f"🧪 DEBUG: Reusing order {order_id}")
     else:
         order_id = str(uuid.uuid4())
+        bot.send_message(uid, f"🧪 DEBUG: Creating new order {order_id}")
         try:
             cur.execute(
                 "INSERT INTO orders (id, user_id, amount, paid) VALUES (%s,%s,%s,0)",
@@ -2507,28 +2531,23 @@ def groupitem_deeplink_handler(msg):
                     """,
                     (order_id, i["id"], i["file_id"], int(i["price"] or 0))
                 )
-        except Exception:
+            conn.commit()
+            bot.send_message(uid, "🧪 DEBUG: Order committed")
+        except Exception as e:
+            bot.send_message(uid, f"❌ DEBUG: Order insert failed → {e}")
             cur.close()
             conn.close()
             return
 
     # ========= PAYSTACK =========
-    display_title = f"{item_count} item(s)"
-    pay_url = create_paystack_payment(uid, order_id, total, display_title)
+    pay_url = create_paystack_payment(uid, order_id, total, f"{item_count} item(s)")
+    bot.send_message(uid, f"🧪 DEBUG: Paystack URL = {bool(pay_url)}")
 
     if not pay_url:
+        bot.send_message(uid, "❌ DEBUG: Paystack returned empty URL")
         cur.close()
         conn.close()
         return
-
-    # ========= FIXED TITLE DISPLAY (GROUP_KEY SAFE) =========
-    unique_titles = [
-        i["title"]
-        for _, i in {
-            (i["group_key"] or f"single_{i['id']}"): i
-            for i in items
-        }.items()
-    ]
 
     # ========= FINAL =========
     kb = InlineKeyboardMarkup()
@@ -2537,24 +2556,15 @@ def groupitem_deeplink_handler(msg):
 
     bot.send_message(
         uid,
-        f"""🧺 <b>Your order created 🎉</b>
-
-🎬 <b>You will buy:</b>
-{", ".join(unique_titles)}
-
-📦 Films: {item_count}
-💵 Total amount: ₦{total}
-
-👤 <b>Your name is:</b> {user_name}
-🆔 <b>Order ID:</b>
-<code>{order_id}</code>
-""",
-        parse_mode="HTML",
+        "✅ DEBUG: Final message sent",
         reply_markup=kb
     )
 
     cur.close()
     conn.close()
+        
+
+# ========= BUYD (ITEM ONLY | DEEP LINK → DM) =========
 
 # ================= ADMIN MANUAL SUPPORT SYSTEM ===========
 

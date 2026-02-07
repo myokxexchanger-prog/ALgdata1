@@ -2131,6 +2131,9 @@ ORDERS_PER_PAGE = 5
 def build_unpaid_orders_view(uid, page):
     offset = page * ORDERS_PER_PAGE
 
+    conn = get_conn()
+    cur = conn.cursor()
+
     # ===== COUNT ORDERS (FIXED: IGNORE EMPTY / DELETED ORDERS) =====
     cur.execute(
         """
@@ -2149,6 +2152,8 @@ def build_unpaid_orders_view(uid, page):
     total = cur.fetchone()[0]
 
     if total == 0:
+        cur.close()
+        conn.close()
         kb = InlineKeyboardMarkup()
         kb.add(
             InlineKeyboardButton(
@@ -2206,7 +2211,6 @@ def build_unpaid_orders_view(uid, page):
 
     for oid, count, amount, title, gk_count, base_price, group_key in rows:
 
-        # ===== DISPLAY LOGIC (GROUP SAFE) =====
         if count > 1 and gk_count == 1:
             name = f"{title} (EP {count})"
             show_amount = base_price
@@ -2229,7 +2233,6 @@ def build_unpaid_orders_view(uid, page):
 
     text += f"\n<b>Total balance:</b> ₦{int(total_amount)}"
 
-    # ===== NAVIGATION =====
     nav = []
     if page > 0:
         nav.append(
@@ -2248,7 +2251,6 @@ def build_unpaid_orders_view(uid, page):
     if nav:
         kb.row(*nav)
 
-    # ===== ACTIONS =====
     kb.row(
         InlineKeyboardButton("💳 Pay all", callback_data="payall:"),
         InlineKeyboardButton("📩 Paid orders", callback_data="paid_orders")
@@ -2265,9 +2267,16 @@ def build_unpaid_orders_view(uid, page):
         )
     )
 
+    cur.close()
+    conn.close()
     return text, kb
+
+
 def build_paid_orders_view(uid, page):
     offset = page * ORDERS_PER_PAGE
+
+    conn = get_conn()
+    cur = conn.cursor()
 
     cur.execute(
         "SELECT COUNT(*) FROM orders WHERE user_id=%s AND paid=1",
@@ -2276,6 +2285,8 @@ def build_paid_orders_view(uid, page):
     total = cur.fetchone()[0]
 
     if total == 0:
+        cur.close()
+        conn.close()
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🎥 PAID MOVIES", callback_data="my_movies"))
         kb.add(
@@ -2355,6 +2366,8 @@ def build_paid_orders_view(uid, page):
         )
     )
 
+    cur.close()
+    conn.close()
     return text, kb
 
 

@@ -4459,28 +4459,41 @@ def _last_day_of_month(dt):
 
 # ================= ONE REPORT ENGINE =================
 def send_sales_report(since_dt, title, target_chat_id, silent_if_empty=False):
+    # ✅ FIX: fresh DB connection
+    conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
-    cur.execute(
-        """
-        SELECT
-            COALESCE(i.group_key, 'single_' || i.id) AS grp,
-            MIN(i.title) AS title,
-            COUNT(DISTINCT o.id) AS orders,
-            SUM(oi.price) AS total
-        FROM orders o
-        JOIN order_items oi ON oi.order_id = o.id
-        JOIN items i ON i.id = oi.item_id
-        WHERE o.paid = 1
-          AND o.created_at >= %s
-        GROUP BY grp
-        ORDER BY total DESC
-        """,
-        (since_dt,)
-    )
+    try:
+        cur.execute(
+            """
+            SELECT
+                COALESCE(i.group_key, 'single_' || i.id) AS grp,
+                MIN(i.title) AS title,
+                COUNT(DISTINCT o.id) AS orders,
+                SUM(oi.price) AS total
+            FROM orders o
+            JOIN order_items oi ON oi.order_id = o.id
+            JOIN items i ON i.id = oi.item_id
+            WHERE o.paid = 1
+              AND o.created_at >= %s
+            GROUP BY grp
+            ORDER BY total DESC
+            """,
+            (since_dt,)
+        )
 
-    rows = cur.fetchall()
-    cur.close()
+        rows = cur.fetchall()
+
+    except Exception as e:
+        bot.send_message(
+            target_chat_id,
+            f"❌ Sales report DB error:\n{e}"
+        )
+        return
+
+    finally:
+        cur.close()
+        conn.close()
 
     # ===== NO SALES =====
     if not rows:
@@ -4563,8 +4576,6 @@ def sales_report_scheduler():
             monthly_sent = False
 
         time.sleep(20)
-
-
 
 
 

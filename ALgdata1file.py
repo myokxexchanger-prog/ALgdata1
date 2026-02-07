@@ -3785,13 +3785,7 @@ def all_callbacks(c):
         bot.answer_callback_query(c.id)
         return
 
-@bot.callback_query_handler(func=lambda c: True)
-def all_callbacks(c):
-    try:
-        uid = c.from_user.id
-        data = c.data
-    except:
-        return 
+
 
 # ================= RESEND BY DAYS =================
     if data.startswith("resend:"):
@@ -3978,14 +3972,18 @@ def all_callbacks(c):
         )
         return
 
-    # =====================
+
+
+# =====================
     # REMOVE SINGLE UNPAID
     # =====================
     if data.startswith("remove_unpaid:"):
         oid = data.split(":", 1)[1]
 
         try:
+            conn = get_conn()
             cur = conn.cursor()
+
             cur.execute(
                 """
                 SELECT 1 FROM orders
@@ -4012,7 +4010,10 @@ def all_callbacks(c):
             cur.close()
 
         except Exception:
-            conn.rollback()
+            try:
+                conn.rollback()
+            except:
+                pass
             bot.answer_callback_query(c.id, "❌ Failed to remove")
             return
 
@@ -4032,6 +4033,7 @@ def all_callbacks(c):
     # =====================
     if data == "delete_unpaid":
         try:
+            conn = get_conn()
             cur = conn.cursor()
 
             cur.execute(
@@ -4057,7 +4059,10 @@ def all_callbacks(c):
             cur.close()
 
         except Exception:
-            conn.rollback()
+            try:
+                conn.rollback()
+            except:
+                pass
             bot.answer_callback_query(c.id, "❌ Failed to delete")
             return
 
@@ -4070,7 +4075,8 @@ def all_callbacks(c):
             parse_mode="HTML"
         )
         bot.answer_callback_query(c.id, "🗑 All unpaid orders deleted")
-        return
+        return    
+    
 
   
     # =====================

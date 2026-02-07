@@ -3395,7 +3395,9 @@ def all_callbacks(c):
         )
         return
 
-    # =====================
+ 
+
+# =====================
     # CHECKOUT
     # =====================
     if data == "checkout":
@@ -3417,13 +3419,17 @@ def all_callbacks(c):
             except:
                 continue
 
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT 1 FROM user_movies WHERE user_id=%s AND item_id=%s LIMIT 1",
-                (uid, item_id)
-            )
-            owned = cur.fetchone()
-            cur.close()
+            try:
+                conn = get_conn()
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT 1 FROM user_movies WHERE user_id=%s AND item_id=%s LIMIT 1",
+                    (uid, item_id)
+                )
+                owned = cur.fetchone()
+                cur.close()
+            except:
+                owned = None
 
             if owned:
                 owned_count += 1
@@ -3471,6 +3477,7 @@ def all_callbacks(c):
         film_count = sum(len(g["items"]) for g in groups.values())
 
         try:
+            conn = get_conn()
             cur = conn.cursor()
             cur.execute(
                 "INSERT INTO orders (id, user_id, amount, paid) VALUES (%s,%s,%s,0)",
@@ -3490,17 +3497,24 @@ def all_callbacks(c):
             conn.commit()
             cur.close()
         except Exception:
-            conn.rollback()
+            try:
+                conn.rollback()
+            except:
+                pass
             bot.answer_callback_query(c.id, "❌ Checkout failed")
             return
 
         try:
+            conn = get_conn()
             cur = conn.cursor()
             cur.execute("DELETE FROM cart WHERE user_id=%s", (uid,))
             conn.commit()
             cur.close()
         except:
-            conn.rollback()
+            try:
+                conn.rollback()
+            except:
+                pass
 
         pay_url = create_paystack_payment(
             uid,
@@ -3538,107 +3552,8 @@ def all_callbacks(c):
         )
 
         bot.answer_callback_query(c.id)
-        return
-    
+        return  
 
-# =====================
-    # REMOVE FROM CART
-    # =====================
-    if data.startswith("removecart:"):
-        raw = data.split(":", 1)[1]
-        ids = [i for i in raw.split("_") if i.isdigit()]
-
-        if not ids:
-            bot.answer_callback_query(c.id, "❌ No item selected")
-            return
-
-        removed = 0
-
-        try:
-            conn = get_conn()
-            cur = conn.cursor()
-            for item_id in ids:
-                cur.execute(
-                    "DELETE FROM cart WHERE user_id=%s AND item_id=%s",
-                    (uid, item_id)
-                )
-                removed += cur.rowcount
-            conn.commit()
-            cur.close()
-        except Exception:
-            conn.rollback()
-            bot.answer_callback_query(c.id, "❌ Remove failed")
-            return
-
-        # 🚫 idan babu abin da aka goge
-        if removed == 0:
-            bot.answer_callback_query(
-                c.id,
-                "⚠️ Wannan item din baya cikin cart"
-            )
-            return
-
-        # 🔁 EDIT CART MESSAGE
-        msg_id = cart_sessions.get(uid)
-        if msg_id:
-            text, kb = build_cart_view(uid)
-            try:
-                bot.edit_message_text(
-                    chat_id=c.message.chat.id,
-                    message_id=msg_id,
-                    text=text,
-                    reply_markup=kb,
-                    parse_mode="HTML"
-                )
-            except:
-                pass
-
-        bot.answer_callback_query(c.id, "🗑 Item removed")
-        return
-
-    # =====================
-    # CLEAR CART
-    # =====================
-    if data == "clearcart":
-        try:
-            conn = get_conn()
-            cur = conn.cursor()
-            cur.execute(
-                "DELETE FROM cart WHERE user_id=%s",
-                (uid,)
-            )
-            removed = cur.rowcount
-            conn.commit()
-            cur.close()
-        except Exception:
-            conn.rollback()
-            bot.answer_callback_query(c.id, "❌ Clear failed")
-            return
-
-        if removed == 0:
-            bot.answer_callback_query(
-                c.id,
-                "⚠️ Cart dinka tuni babu komai"
-            )
-            return
-
-        # 🔁 EDIT CART MESSAGE (zai nuna empty cart)
-        msg_id = cart_sessions.get(uid)
-        if msg_id:
-            text, kb = build_cart_view(uid)
-            try:
-                bot.edit_message_text(
-                    chat_id=c.message.chat.id,
-                    message_id=msg_id,
-                    text=text,
-                    reply_markup=kb,
-                    parse_mode="HTML"
-                )
-            except:
-                pass
-
-        bot.answer_callback_query(c.id, "🧹 Cart cleared")
-        return
 
 
     # =====================
@@ -3728,6 +3643,100 @@ def all_callbacks(c):
         return
 
 
+# =====================
+    # REMOVE FROM CART
+    # =====================
+    if data.startswith("removecart:"):
+        raw = data.split(":", 1)[1]
+        ids = [i for i in raw.split("_") if i.isdigit()]
+
+        if not ids:
+            bot.answer_callback_query(c.id, "❌ No item selected")
+            return
+
+        removed = 0
+
+        try:
+            conn = get_conn()
+            cur = conn.cursor()
+            for item_id in ids:
+                cur.execute(
+                    "DELETE FROM cart WHERE user_id=%s AND item_id=%s",
+                    (uid, item_id)
+                )
+                removed += cur.rowcount
+            conn.commit()
+            cur.close()
+        except Exception:
+            conn.rollback()
+            bot.answer_callback_query(c.id, "❌ Remove failed")
+            return
+
+        # 🚫 idan babu abin da aka goge
+        if removed == 0:
+            bot.answer_callback_query(
+                c.id,
+                "⚠️ Wannan item din baya cikin cart"
+            )
+            return
+
+        # 🔁 EDIT CART MESSAGE (FIXED)
+        text, kb = build_cart_view(uid)
+        try:
+            bot.edit_message_text(
+                chat_id=c.message.chat.id,
+                message_id=c.message.message_id,
+                text=text,
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            print("EDIT FAILED:", e)
+
+        bot.answer_callback_query(c.id, "🗑 Item removed")
+        return
+
+    # =====================
+    # CLEAR CART
+    # =====================
+    if data == "clearcart":
+        try:
+            conn = get_conn()
+            cur = conn.cursor()
+            cur.execute(
+                "DELETE FROM cart WHERE user_id=%s",
+                (uid,)
+            )
+            removed = cur.rowcount
+            conn.commit()
+            cur.close()
+        except Exception:
+            conn.rollback()
+            bot.answer_callback_query(c.id, "❌ Clear failed")
+            return
+
+        if removed == 0:
+            bot.answer_callback_query(
+                c.id,
+                "⚠️ Cart dinka tuni babu komai"
+            )
+            return
+
+        # 🔁 EDIT CART MESSAGE (FIXED)
+        text, kb = build_cart_view(uid)
+        try:
+            bot.edit_message_text(
+                chat_id=c.message.chat.id,
+                message_id=c.message.message_id,
+                text=text,
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            print("EDIT FAILED:", e)
+
+        bot.answer_callback_query(c.id, "🧹 Cart cleared")
+        return
     # =====================
     # PENDING / UNPAID ORDERS
     # =====================

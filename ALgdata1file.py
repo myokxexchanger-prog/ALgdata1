@@ -3540,7 +3540,8 @@ def all_callbacks(c):
         bot.answer_callback_query(c.id)
         return
     
-    # =====================
+
+# =====================
     # REMOVE FROM CART
     # =====================
     if data.startswith("removecart:"):
@@ -3554,6 +3555,7 @@ def all_callbacks(c):
         removed = 0
 
         try:
+            conn = get_conn()
             cur = conn.cursor()
             for item_id in ids:
                 cur.execute(
@@ -3599,6 +3601,7 @@ def all_callbacks(c):
     # =====================
     if data == "clearcart":
         try:
+            conn = get_conn()
             cur = conn.cursor()
             cur.execute(
                 "DELETE FROM cart WHERE user_id=%s",
@@ -3638,7 +3641,6 @@ def all_callbacks(c):
         return
 
 
-
     # =====================
     # ADD TO CART (SAFE)
     # =====================
@@ -3658,6 +3660,7 @@ def all_callbacks(c):
         skipped = 0
 
         try:
+            conn = get_conn()
             cur = conn.cursor()
 
             for item_id in item_ids:
@@ -3710,9 +3713,10 @@ def all_callbacks(c):
                 "⚠️ You've already added this item"
             )
 
-        return
-  
+        return    
+    
 
+        
     # =====================
     # VIEW CART
     # =====================

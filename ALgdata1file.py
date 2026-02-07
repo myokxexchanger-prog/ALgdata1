@@ -3181,9 +3181,7 @@ def all_callbacks(c):
     uid = c.from_user.id  # ✅ INT
     data = c.data 
 
-    bot.answer_callback_query(c.id)
-# 🔎 DEBUG – aika a Telegram (ADMIN kawai)
-
+    
     # ================= FEEDBACK =================
     if not data.startswith("feedback:"):
         return  # kada a kama sauran callbacks

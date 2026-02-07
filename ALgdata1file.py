@@ -3324,10 +3324,10 @@ def all_callbacks(c):
         fname = "User"
 
     admin_messages = {
-        "very": "😘 Gaskiya na ji daɗin siyayya da bot ɗinku",
-        "good": "🙂 Na ji daɗin siyayya",
-        "neutral": "😓 Ban gama fahimta sosai ba",
-        "angry": "🤬 Wannan bot yana bani ciwon kai"
+        "very": "😘 Gaskiya na ji daɗin siyayya da bot ɗinku, yana da sauki kuma wannan babban cigabane",
+        "good": "🙂 Na ji daɗin siyayya kuma gaskiya wannan bot ba karamin sauki yakawo manaba",
+        "neutral": "😓 Ban gama fahimta sosai ba, ku karayin vidoe don wayar mana da kai",
+        "angry": "🤬 Wannan bot naku bai kyauta min ba, yakamata ku gyara tsarin kasuwancinku domin akwai matsala"
     }
 
     admin_text = (
@@ -3360,131 +3360,6 @@ def all_callbacks(c):
         uid,
         "🙏 Mun gode da ra'ayinka! Za mu yi aiki da shi Insha Allah."
     )
-
-    def fdebug(msg):
-        try:
-            bot.send_message(
-                ADMIN_ID,
-                f"🐞 <b>FEEDBACK DEBUG</b>\n{msg}",
-                parse_mode="HTML"
-            )
-        except:
-            pass
-
-    fdebug(f"📩 CALLBACK RECEIVED\nUser: {uid}\nData: {data}")
-
-    # ================= FEEDBACK =================
-    if not data.startswith("feedback:"):
-        fdebug("⏭ Not feedback callback → ignored")
-        return
-
-    # ⚠️ Telegram requirement
-    bot.answer_callback_query(c.id)
-
-    parts = data.split(":", 2)
-    if len(parts) != 3:
-        fdebug(f"❌ INVALID FORMAT\nParts: {parts}")
-        bot.answer_callback_query(
-            c.id,
-            "⚠️ Invalid feedback data",
-            show_alert=True
-        )
-        return
-
-    mood, order_id = parts[1], parts[2]
-
-    fdebug(
-        f"🧠 PARSED DATA\n"
-        f"Mood: {mood}\n"
-        f"Order ID: {order_id}\n"
-        f"Order ID type: {type(order_id)}"
-    )
-
-    # ================= CHECK ORDER =================
-    try:
-        row = conn.execute(
-            """
-            SELECT paid
-            FROM orders
-            WHERE id=%s AND user_id=%s
-            """,
-            (order_id, uid)
-        ).fetchone()
-    except Exception as e:
-        fdebug(f"❌ DB ERROR (ORDER CHECK)\n{e}")
-        bot.answer_callback_query(
-            c.id,
-            "⚠️ Database error",
-            show_alert=True
-        )
-        return
-
-    fdebug(f"📄 ORDER ROW FROM DB: {row}")
-
-    # ❗️INT SAFE CHECK
-    if not row:
-        fdebug("❌ ORDER NOT FOUND")
-        bot.answer_callback_query(
-            c.id,
-            "⚠️ Wannan order ba naka bane.",
-            show_alert=True
-        )
-        return
-
-    if row[0] != 1:
-        fdebug(f"❌ ORDER NOT PAID\npaid value = {row[0]}")
-        bot.answer_callback_query(
-            c.id,
-            "⚠️ Ba a tabbatar da biyan wannan order ba.",
-            show_alert=True
-        )
-        return
-
-    fdebug("✅ ORDER IS PAID")
-
-    # ================= CHECK DUPLICATE =================
-    try:
-        exists = conn.execute(
-            "SELECT 1 FROM feedbacks WHERE order_id=%s",
-            (order_id,)
-        ).fetchone()
-    except Exception as e:
-        fdebug(f"❌ DB ERROR (DUPLICATE CHECK)\n{e}")
-        return
-
-    fdebug(f"🧾 FEEDBACK EXISTS QUERY RESULT: {exists}")
-
-    if exists:
-        fdebug("⚠️ FEEDBACK ALREADY EXISTS")
-        bot.answer_callback_query(
-            c.id,
-            "Ka riga ka bada ra'ayi.",
-            show_alert=True
-        )
-        return
-
-    # ================= INSERT FEEDBACK =================
-    try:
-        conn.execute(
-            """
-            INSERT INTO feedbacks (order_id, user_id, mood)
-            VALUES (%s, %s, %s)
-            """,
-            (order_id, uid, mood)
-        )
-        conn.commit()
-    except Exception as e:
-        fdebug(f"❌ INSERT FEEDBACK FAILED\n{e}")
-        bot.answer_callback_query(
-            c.id,
-            "⚠️ Ba a iya adana ra'ayi ba",
-            show_alert=True
-        )
-        return
-
-    fdebug("✅ FEEDBACK INSERTED SUCCESSFULLY")
-
-
 
     if data == "groupitems":
         if uid != ADMIN_ID:

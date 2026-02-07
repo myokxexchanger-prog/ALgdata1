@@ -3023,6 +3023,225 @@ import uuid
 from datetime import datetime
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+series_sessions = {}
+
+# ===============================
+# COLLECT SERIES FILES
+# ===============================
+@bot.message_handler(
+    content_types=["video", "document"],
+    func=lambda m: m.from_user.id in series_sessions
+)
+def series_collect_files(m):
+    uid = m.from_user.id
+    sess = series_sessions.get(uid)
+
+    if not sess or sess.get("stage") != "collect":
+        return
+
+    if m.video:
+        dm_file_id = m.video.file_id
+        file_name = m.video.file_name or "video.mp4"
+    else:
+        dm_file_id = m.document.file_id
+        file_name = m.document.file_name or "file"
+
+    sess["files"].append({
+        "dm_file_id": dm_file_id,
+        "file_name": file_name
+    })
+
+    bot.send_message(uid, f"✅ An karɓi: <b>{file_name}</b>", parse_mode="HTML")
+
+# ===============================
+# DONE
+# ===============================
+@bot.message_handler(
+    func=lambda m: m.text and m.text.lower().strip() == "done" and m.from_user.id in series_sessions
+)
+def series_done(m):
+    uid = m.from_user.id
+    sess = series_sessions.get(uid)
+
+    if sess.get("stage") != "collect":
+        return
+
+    if not sess.get("files"):
+        bot.send_message(uid, "❌ Babu fim da aka turo.")
+        return
+
+    text = "✅ <b>An karɓi fina-finai:</b>\n\n"
+    for f in sess["files"]:
+        text += f"• {f['file_name']}\n"
+
+    text += "\n❓ <b>Akwai Hausa series a ciki?</b>"
+    sess["stage"] = "ask_hausa"
+
+    kb = InlineKeyboardMarkup()
+    kb.add(
+        InlineKeyboardButton("✅ EH", callback_data="hausa_yes"),
+        InlineKeyboardButton("❌ A'A", callback_data="hausa_no")
+    )
+
+    bot.send_message(uid, text, parse_mode="HTML", reply_markup=kb)
+
+# ===============================
+# HAUSA CHOICE
+# ===============================
+@bot.callback_query_handler(
+    func=lambda c: c.data in ["hausa_yes", "hausa_no"] and c.from_user.id in series_sessions
+)
+def handle_hausa_choice(c):
+    uid = c.from_user.id
+    sess = series_sessions.get(uid)
+    bot.answer_callback_query(c.id)
+
+    if c.data == "hausa_no":
+        sess["hausa_matches"] = []
+        sess["stage"] = "meta"
+        bot.send_message(uid, "📸 Turo poster + caption (suna da farashi)")
+        return
+
+    sess["stage"] = "hausa_names"
+    bot.send_message(uid, "✍️ Rubuta sunayen Hausa series (layi-layi)")
+
+# ===============================
+# RECEIVE HAUSA TITLES
+# ===============================
+@bot.message_handler(
+    func=lambda m: m.text and m.from_user.id in series_sessions
+    and series_sessions[m.from_user.id].get("stage") == "hausa_names"
+)
+def receive_hausa_titles(m):
+    uid = m.from_user.id
+    sess = series_sessions.get(uid)
+
+    titles = [t.strip().lower() for t in m.text.split("\n") if t.strip()]
+    matches = []
+
+    for f in sess["files"]:
+        fname = f["file_name"].lower()
+        for t in titles:
+            if t in fname:
+                matches.append(f["file_name"])
+                break
+
+    sess["hausa_matches"] = matches
+    sess["stage"] = "meta"
+
+    bot.send_message(uid, "📸 Yanzu turo poster + caption (suna da farashi)")
+
+# ===============================
+# FINALIZE (UPLOAD + DB) ✅ FIXED
+# ===============================
+@bot.message_handler(
+    content_types=["photo"],
+    func=lambda m: m.from_user.id in series_sessions
+)
+def series_finalize(m):
+    uid = m.from_user.id
+    sess = series_sessions.get(uid)
+
+    if sess.get("stage") != "meta":
+        return
+
+    try:
+        title, raw_price = m.caption.strip().rsplit("\n", 1)
+        has_comma = "," in raw_price
+        price = int(raw_price.replace(",", "").strip())
+    except:
+        bot.send_message(uid, "❌ Caption bai dace ba.")
+        return
+
+    poster_file_id = m.photo[-1].file_id
+
+    # ✅ MUHIMMI: fresh DB connection
+    conn = get_conn()
+    cur = conn.cursor()
+
+    try:
+        cur.execute(
+            """
+            INSERT INTO series (title, price, poster_file_id)
+            VALUES (%s, %s, %s)
+            RETURNING id
+            """,
+            (title, price, poster_file_id)
+        )
+        series_id = cur.fetchone()[0]
+
+        created_at = datetime.utcnow()
+        group_key = str(uuid.uuid4())
+        item_ids = []
+
+        for f in sess["files"]:
+            msg = bot.send_document(
+                STORAGE_CHANNEL,
+                f["dm_file_id"],
+                caption=f["file_name"]
+            )
+
+            doc = msg.document or msg.video
+
+            cur.execute(
+                """
+                INSERT INTO items
+                (title, price, file_id, file_name, group_key, created_at, channel_msg_id, channel_username)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    title,
+                    price,
+                    doc.file_id if doc else None,
+                    f["file_name"],
+                    group_key,
+                    created_at,
+                    msg.message_id,
+                    str(STORAGE_CHANNEL)
+                )
+            )
+            item_ids.append(cur.fetchone()[0])
+
+        conn.commit()
+
+    except Exception as e:
+        conn.rollback()
+        bot.send_message(uid, f"❌ DB error:\n{e}")
+        return
+
+    finally:
+        cur.close()
+        conn.close()
+
+    display_price = f"{price:,}" if has_comma else str(price)
+    ids_str = "_".join(str(i) for i in item_ids)
+
+    kb = InlineKeyboardMarkup()
+    kb.add(
+        InlineKeyboardButton("🗃 Add to cart", callback_data=f"addcartdm:{ids_str}"),
+        InlineKeyboardButton(
+            "💳 Buy now",
+            url=f"https://t.me/{BOT_USERNAME}?start=groupitem_{ids_str}"
+        )
+    )
+
+    bot.send_photo(
+        CHANNEL,
+        poster_file_id,
+        caption=f"🎬 <b>{title}</b>\n💵Price: ₦{display_price}",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+
+    bot.send_message(uid, "🎉 Series an adana dukka series lafiya.")
+    del series_sessions[uid]
+
+
+import uuid
+from datetime import datetime
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+
 # ===============================
 # SERIES UPLOAD – FULL FLOW
 # ===============================

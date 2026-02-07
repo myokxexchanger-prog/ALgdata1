@@ -3227,19 +3227,139 @@ def all_callbacks(c):
     uid = c.from_user.id  # ✅ INT
     data = c.data 
 
-
-    # 🔎 DEBUG – aika a Telegram (ADMIN kawai)
-    try:
-        if uid == ADMIN_ID:
-            bot.send_message(ADMIN_ID, f"🧪 CALLBACK: {data}")
-    except:
-        pass
-
-    
-
     bot.answer_callback_query(c.id)
 # 🔎 DEBUG – aika a Telegram (ADMIN kawai)
 
+    # ================= FEEDBACK =================
+    if not data.startswith("feedback:"):
+        return  # kada a kama sauran callbacks
+
+    # Telegram requirement
+    bot.answer_callback_query(c.id)
+
+    parts = data.split(":", 2)
+    if len(parts) != 3:
+        bot.answer_callback_query(
+            c.id,
+            "⚠️ Invalid feedback data",
+            show_alert=True
+        )
+        return
+
+    mood, order_id = parts[1], parts[2]
+
+    cur = conn.cursor()
+
+    # ================= CHECK ORDER =================
+    try:
+        cur.execute(
+            """
+            SELECT paid
+            FROM orders
+            WHERE id=%s AND user_id=%s
+            """,
+            (order_id, uid)
+        )
+        row = cur.fetchone()
+    except Exception:
+        cur.close()
+        bot.answer_callback_query(
+            c.id,
+            "⚠️ Database error",
+            show_alert=True
+        )
+        return
+
+    if not row or row[0] != 1:
+        cur.close()
+        bot.answer_callback_query(
+            c.id,
+            "⚠️ Wannan order ba naka bane ko ba'a biya ba.",
+            show_alert=True
+        )
+        return
+
+    # ================= CHECK DUPLICATE =================
+    cur.execute(
+        "SELECT 1 FROM feedbacks WHERE order_id=%s",
+        (order_id,)
+    )
+    exists = cur.fetchone()
+
+    if exists:
+        cur.close()
+        bot.answer_callback_query(
+            c.id,
+            "Ka riga ka bada ra'ayi.",
+            show_alert=True
+        )
+        return
+
+    # ================= INSERT FEEDBACK =================
+    try:
+        cur.execute(
+            """
+            INSERT INTO feedbacks (order_id, user_id, mood)
+            VALUES (%s, %s, %s)
+            """,
+            (order_id, uid, mood)
+        )
+        conn.commit()
+    except Exception:
+        cur.close()
+        bot.answer_callback_query(
+            c.id,
+            "⚠️ Ba a iya adana ra'ayi ba",
+            show_alert=True
+        )
+        return
+
+    cur.close()
+
+    # ================= USER INFO =================
+    try:
+        chat = bot.get_chat(uid)
+        fname = chat.first_name or "User"
+    except:
+        fname = "User"
+
+    admin_messages = {
+        "very": "😘 Gaskiya na ji daɗin siyayya da bot ɗinku",
+        "good": "🙂 Na ji daɗin siyayya",
+        "neutral": "😓 Ban gama fahimta sosai ba",
+        "angry": "🤬 Wannan bot yana bani ciwon kai"
+    }
+
+    admin_text = (
+        "📣 FEEDBACK RECEIVED\n\n"
+        f"👤 User: {fname}\n"
+        f"🆔 ID: {uid}\n"
+        f"📦 Order: {order_id}\n"
+        f"💬 Mood: {mood}\n\n"
+        f"{admin_messages.get(mood, mood)}"
+    )
+
+    # ================= SEND TO ADMIN =================
+    try:
+        bot.send_message(ADMIN_ID, admin_text)
+    except:
+        pass
+
+    # ================= REMOVE BUTTONS =================
+    try:
+        bot.edit_message_reply_markup(
+            chat_id=c.message.chat.id,
+            message_id=c.message.message_id,
+            reply_markup=None
+        )
+    except:
+        pass
+
+    # ================= USER CONFIRM =================
+    bot.send_message(
+        uid,
+        "🙏 Mun gode da ra'ayinka! Za mu yi aiki da shi Insha Allah."
+    )
 
     def fdebug(msg):
         try:
@@ -3364,56 +3484,7 @@ def all_callbacks(c):
 
     fdebug("✅ FEEDBACK INSERTED SUCCESSFULLY")
 
-    # ================= USER INFO =================
-    try:
-        chat = bot.get_chat(uid)
-        fname = chat.first_name or "User"
-        fdebug(f"👤 USER NAME FETCHED: {fname}")
-    except Exception as e:
-        fdebug(f"⚠️ GET_CHAT ERROR\n{e}")
-        fname = "User"
 
-    admin_messages = {
-        "very": "😘 Gaskiya na ji daɗin siyayya da bot ɗinku",
-        "good": "🙂 Na ji daɗin siyayya",
-        "neutral": "😓 Ban gama fahimta sosai ba",
-        "angry": "🤬 Wannan bot yana bani ciwon kai"
-    }
-
-    admin_text = (
-        "📣 FEEDBACK RECEIVED\n\n"
-        f"👤 User: {fname}\n"
-        f"🆔 ID: {uid}\n"
-        f"📦 Order: {order_id}\n"
-        f"💬 Mood: {mood}\n\n"
-        f"{admin_messages.get(mood, mood)}"
-    )
-
-    # ================= SEND TO ADMIN =================
-    try:
-        bot.send_message(ADMIN_ID, admin_text)
-        fdebug("📤 ADMIN NOTIFIED SUCCESSFULLY")
-    except Exception as e:
-        fdebug(f"⚠️ ADMIN SEND ERROR\n{e}")
-
-    # ================= REMOVE BUTTONS =================
-    try:
-        bot.edit_message_reply_markup(
-            chat_id=c.message.chat.id,
-            message_id=c.message.message_id,
-            reply_markup=None
-        )
-        fdebug("🧹 BUTTONS REMOVED")
-    except Exception as e:
-        fdebug(f"⚠️ REMOVE BUTTON ERROR\n{e}")
-
-    # ================= USER CONFIRM =================
-    bot.send_message(
-        uid,
-        "🙏 Mun gode da ra'ayinka! Za mu yi aiki da shi Insha Allah."
-    )
-    fdebug("✅ USER CONFIRMATION SENT")
-    
 
     if data == "groupitems":
         if uid != ADMIN_ID:

@@ -3785,8 +3785,15 @@ def all_callbacks(c):
         bot.answer_callback_query(c.id)
         return
 
+@bot.callback_query_handler(func=lambda c: True)
+def all_callbacks(c):
+    try:
+        uid = c.from_user.id
+        data = c.data
+    except:
+        return 
 
-    # ================= RESEND BY DAYS =================
+# ================= RESEND BY DAYS =================
     if data.startswith("resend:"):
         try:
             days = int(data.split(":", 1)[1])
@@ -3794,10 +3801,15 @@ def all_callbacks(c):
             bot.answer_callback_query(c.id, "❌ Invalid time.")
             return
 
-        used = conn.execute(
-            "SELECT COUNT(*) FROM resend_logs WHERE user_id=%s",
-            (uid,)
-        ).fetchone()[0]
+        try:
+            conn = get_conn()
+            used = conn.execute(
+                "SELECT COUNT(*) FROM resend_logs WHERE user_id=%s",
+                (uid,)
+            ).fetchone()[0]
+        except:
+            bot.answer_callback_query(c.id, "❌ Database error.")
+            return
 
         if used >= 10:
             bot.send_message(
@@ -3808,17 +3820,22 @@ def all_callbacks(c):
             bot.answer_callback_query(c.id)
             return
 
-        rows = conn.execute(
-            """
-            SELECT DISTINCT ui.item_id, i.file_id, i.title
-            FROM user_movies ui
-            JOIN items i ON i.id = ui.item_id
-            WHERE ui.user_id=%s
-              AND ui.created_at >= NOW() - INTERVAL '%s days'
-            ORDER BY ui.created_at ASC
-            """,
-            (uid, days)
-        ).fetchall()
+        try:
+            conn = get_conn()
+            rows = conn.execute(
+                """
+                SELECT DISTINCT ui.item_id, i.file_id, i.title
+                FROM user_movies ui
+                JOIN items i ON i.id = ui.item_id
+                WHERE ui.user_id=%s
+                  AND ui.created_at >= NOW() - INTERVAL '%s days'
+                ORDER BY ui.created_at ASC
+                """,
+                (uid, days)
+            ).fetchall()
+        except:
+            bot.answer_callback_query(c.id, "❌ Database error.")
+            return
 
         if not rows:
             bot.send_message(uid, "❌ Babu fim a wannan lokacin.")
@@ -3831,11 +3848,15 @@ def all_callbacks(c):
             except:
                 bot.send_document(uid, file_id, caption=f"🎬 {title}")
 
-        conn.execute(
-            "INSERT INTO resend_logs (user_id, used_at) VALUES (%s, NOW())",
-            (uid,)
-        )
-        conn.commit()
+        try:
+            conn = get_conn()
+            conn.execute(
+                "INSERT INTO resend_logs (user_id, used_at) VALUES (%s, NOW())",
+                (uid,)
+            )
+            conn.commit()
+        except:
+            pass
 
         bot.send_message(
             uid,
@@ -3854,10 +3875,15 @@ def all_callbacks(c):
             bot.answer_callback_query(c.id, "❌ Invalid movie.")
             return
 
-        used = conn.execute(
-            "SELECT COUNT(*) FROM resend_logs WHERE user_id=%s",
-            (uid,)
-        ).fetchone()[0]
+        try:
+            conn = get_conn()
+            used = conn.execute(
+                "SELECT COUNT(*) FROM resend_logs WHERE user_id=%s",
+                (uid,)
+            ).fetchone()[0]
+        except:
+            bot.answer_callback_query(c.id, "❌ Database error.")
+            return
 
         if used >= 10:
             bot.send_message(
@@ -3867,16 +3893,21 @@ def all_callbacks(c):
             bot.answer_callback_query(c.id)
             return
 
-        row = conn.execute(
-            """
-            SELECT i.file_id, i.title
-            FROM user_movies ui
-            JOIN items i ON i.id = ui.item_id
-            WHERE ui.user_id=%s AND ui.item_id=%s
-            LIMIT 1
-            """,
-            (uid, item_id)
-        ).fetchone()
+        try:
+            conn = get_conn()
+            row = conn.execute(
+                """
+                SELECT i.file_id, i.title
+                FROM user_movies ui
+                JOIN items i ON i.id = ui.item_id
+                WHERE ui.user_id=%s AND ui.item_id=%s
+                LIMIT 1
+                """,
+                (uid, item_id)
+            ).fetchone()
+        except:
+            bot.answer_callback_query(c.id, "❌ Database error.")
+            return
 
         if not row:
             bot.answer_callback_query(c.id, "❌ Movie not found.")
@@ -3889,17 +3920,23 @@ def all_callbacks(c):
         except:
             bot.send_document(uid, file_id, caption=f"🎬 {title}")
 
-        conn.execute(
-            "INSERT INTO resend_logs (user_id, used_at) VALUES (%s, NOW())",
-            (uid,)
-        )
-        conn.commit()
+        try:
+            conn = get_conn()
+            conn.execute(
+                "INSERT INTO resend_logs (user_id, used_at) VALUES (%s, NOW())",
+                (uid,)
+            )
+            conn.commit()
+        except:
+            pass
 
         bot.answer_callback_query(
             c.id,
             "✅ Movie resent successfully.\n⚠️ Limit: 10 times."
         )
         return
+
+
 
    
 

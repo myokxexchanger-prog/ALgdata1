@@ -466,6 +466,176 @@ def send_feedback_prompt(user_id, order_id):
         "We hope you enjoyed your shopping 🥰\nPlease choose how you’re feeling right now.",
         reply_markup=kb
     )
+# ========= PAYSTACK WEBHOOK (POSTGRES - CLEAN) =========
+@app.route("/webhook", methods=["POST"])
+def paystack_webhook():
+
+    # ================= SIGNATURE =================
+    signature = request.headers.get("x-paystack-signature")
+
+    if not signature:
+        return "Missing signature", 401
+
+    computed = hmac.new(
+        PAYSTACK_SECRET.encode(),
+        request.data,
+        hashlib.sha512
+    ).hexdigest()
+
+    if signature != computed:
+        return "Invalid signature", 401
+
+    # ================= PAYLOAD =================
+    payload = request.json or {}
+
+    event = payload.get("event")
+    if event != "charge.success":
+        return "Ignored", 200
+
+    data = payload.get("data", {})
+
+    raw_reference = data.get("reference")
+    currency = data.get("currency")
+    paid_amount = int(data.get("amount", 0) / 100)
+
+    # ================= FIX REFERENCE =================
+    metadata = data.get("metadata", {}) or {}
+    order_id = metadata.get("order_id")
+
+    if not order_id and raw_reference:
+        order_id = raw_reference.split("_")[0]
+
+    if not order_id:
+        return "Order ID missing", 200
+
+    # ================= DB =================
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT user_id, amount, paid
+        FROM orders
+        WHERE id=%s
+        """,
+        (order_id,)
+    )
+    row = cur.fetchone()
+
+    if not row:
+        cur.close()
+        return "Order not found", 200
+
+    user_id, expected_amount, paid = row
+
+    if paid == 1:
+        cur.close()
+        return "Already processed", 200
+
+    if paid_amount != expected_amount or currency != "NGN":
+        cur.close()
+        return "Wrong payment", 200
+
+    # ================= ITEMS =================
+    cur.execute(
+        "SELECT file_id FROM order_items WHERE order_id=%s",
+        (order_id,)
+    )
+    items = cur.fetchall()
+
+    if not items:
+        cur.close()
+        return "Empty order", 200
+
+    # ================= MARK AS PAID =================
+    cur.execute(
+        "UPDATE orders SET paid=1 WHERE id=%s",
+        (order_id,)
+    )
+
+    # ================= USER INFO (FULL NAME FIX) =================
+    cur.execute(
+        """
+        SELECT first_name, last_name
+        FROM visited_users
+        WHERE user_id=%s
+        """,
+        (user_id,)
+    )
+    u = cur.fetchone()
+
+    if u and (u[0] or u[1]):
+        full_name = f"{u[0] or ''} {u[1] or ''}".strip()
+    else:
+        # fallback to Telegram profile (NOT username)
+        try:
+            chat = bot.get_chat(user_id)
+            full_name = f"{chat.first_name or ''} {chat.last_name or ''}".strip()
+        except:
+            full_name = "User"
+
+    # ================= TITLES =================
+    cur.execute(
+        """
+        SELECT i.title
+        FROM order_items oi
+        JOIN items i ON i.id = oi.item_id
+        WHERE oi.order_id=%s
+        """,
+        (order_id,)
+    )
+    titles = [r[0] for r in cur.fetchall()]
+    titles_text = ", ".join(titles) if titles else "N/A"
+
+    conn.commit()
+    cur.close()
+
+    # ================= USER MESSAGE =================
+    kb = InlineKeyboardMarkup()
+    kb.add(
+        InlineKeyboardButton(
+            "⬇️ DOWNLOAD NOW",
+            callback_data=f"deliver:{order_id}"
+        )
+    )
+
+    bot.send_message(
+        user_id,
+        f"""🎉 <b>Payment Successful!</b>
+
+👤 <b>Name:</b> {full_name}
+🎬 <b>Items:</b> {titles_text}
+
+🗃 <b>Order ID:</b>
+<code>{order_id}</code>
+
+💳 <b>Amount:</b> ₦{paid_amount}
+""",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+
+    # ================= ADMIN / GROUP NOTIFICATION =================
+    if PAYMENT_NOTIFY_GROUP:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        bot.send_message(
+            PAYMENT_NOTIFY_GROUP,
+            f"""✅ <b>NEW PAYMENT RECEIVED</b>
+
+👤 User: {full_name}
+🆔 User ID: <code>{user_id}</code>
+
+🎬 Items: {titles_text}
+🗃 Order ID: <code>{order_id}</code>
+💰 Amount: ₦{paid_amount}
+⏰ Time: {now}
+""",
+            parse_mode="HTML"
+        )
+
+    return "OK", 200
+
+
 
 # ========= PAYSTACK WEBHOOK (POSTGRES + HARD DEBUGS) =========
 @app.route("/webhook", methods=["POST"])
@@ -559,129 +729,6 @@ def paystack_webhook():
         return "Order not found", 200
 
     user_id, expected_amount, paid = row
-
-    tdebug(
-        f"📄 Order found\n"
-        f"• User ID: {user_id}\n"
-        f"• Expected: ₦{expected_amount}\n"
-        f"• Paid flag: {paid}"
-    )
-
-    if paid == 1:
-        tdebug("⚠️ Order already processed")
-        cur.close()
-        return "Already processed", 200
-
-    if paid_amount != expected_amount or currency != "NGN":
-        tdebug("❌ Amount or currency mismatch")
-        cur.close()
-        return "Wrong payment", 200
-
-    # ================= ITEMS =================
-    cur.execute(
-        "SELECT file_id FROM order_items WHERE order_id=%s",
-        (order_id,)
-    )
-    items = cur.fetchall()
-
-    tdebug(f"🎬 Items count: {len(items)}")
-
-    if not items:
-        tdebug("❌ Order has NO items")
-        cur.close()
-        return "Empty order", 200
-
-    # ================= MARK AS PAID =================
-    cur.execute(
-        "UPDATE orders SET paid=1 WHERE id=%s",
-        (order_id,)
-    )
-
-    # ================= USER INFO =================
-    cur.execute(
-        """
-        SELECT first_name, last_name, username
-        FROM visited_users
-        WHERE user_id=%s
-        """,
-        (user_id,)
-    )
-    u = cur.fetchone()
-
-    if u:
-        first_name, last_name, username = u
-        full_name = f"{first_name or ''} {last_name or ''}".strip()
-    else:
-        full_name = "Unknown User"
-
-    # ================= TITLES =================
-    cur.execute(
-        """
-        SELECT i.title
-        FROM order_items oi
-        JOIN items i ON i.id = oi.item_id
-        WHERE oi.order_id=%s
-        """,
-        (order_id,)
-    )
-    titles = [r[0] for r in cur.fetchall()]
-    titles_text = ", ".join(titles) if titles else "N/A"
-
-    conn.commit()
-    cur.close()
-
-    tdebug("✅ DB updated, sending messages")
-
-    # ================= USER MESSAGE =================
-    kb = InlineKeyboardMarkup()
-    kb.add(
-        InlineKeyboardButton(
-            "⬇️ DOWNLOAD NOW",
-            callback_data=f"deliver:{order_id}"
-        )
-    )
-
-    bot.send_message(
-        user_id,
-        f"""🎉 <b>Payment Successful!</b>
-
-👤 <b>Name:</b> {full_name}
-🎬 <b>Items:</b> {titles_text}
-
-🗃 <b>Order ID:</b>
-<code>{order_id}</code>
-
-💳 <b>Amount:</b> ₦{paid_amount}
-""",
-        parse_mode="HTML",
-        reply_markup=kb
-    )
-
-    # ================= ADMIN NOTIFICATION =================
-    if PAYMENT_NOTIFY_GROUP:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        bot.send_message(
-            PAYMENT_NOTIFY_GROUP,
-            f"""✅ <b>NEW PAYMENT RECEIVED</b>
-
-👤 User: {full_name}
-🆔 User ID: <code>{user_id}</code>
-
-🎬 Items: {titles_text}
-🗃 Order ID: <code>{order_id}</code>
-💰 Amount: ₦{paid_amount}
-⏰ Time: {now}
-""",
-            parse_mode="HTML"
-        )
-
-    tdebug("🎯 WEBHOOK FULLY PROCESSED")
-    return "OK", 200
-
-
-
-
 
 
 # 

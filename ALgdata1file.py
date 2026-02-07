@@ -439,14 +439,20 @@ def paystack_callback():
 
 # ========= FEEDBACK =========
 def send_feedback_prompt(user_id, order_id):
-    cur = conn.cursor()
-
-    cur.execute(
-        "SELECT 1 FROM feedbacks WHERE order_id = %s",
-        (order_id,)
-    )
-    exists = cur.fetchone()
-    cur.close()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT 1 FROM feedbacks WHERE order_id = %s",
+            (order_id,)
+        )
+        exists = cur.fetchone()
+        cur.close()
+    except Exception:
+        try:
+            cur.close()
+        except:
+            pass
+        return  # DB ta kasa tashi → kar bot ya mutu
 
     if exists:
         return
@@ -461,12 +467,17 @@ def send_feedback_prompt(user_id, order_id):
         InlineKeyboardButton("😠 Angry", callback_data=f"feedback:angry:{order_id}")
     )
 
-    bot.send_message(
-        user_id,
-        "We hope you enjoyed your shopping 🥰\nPlease choose how you’re feeling right now.",
-        reply_markup=kb
-    )
-# ========= PAYSTACK WEBHOOK (POSTGRES - CLEAN) =========
+    try:
+        bot.send_message(
+            user_id,
+            "We hope you enjoyed your shopping 🥰\nPlease choose how you’re feeling right now.",
+            reply_markup=kb
+        )
+    except Exception:
+        pass
+
+
+
 @app.route("/webhook", methods=["POST"])
 def paystack_webhook():
 
@@ -509,6 +520,7 @@ def paystack_webhook():
         return "Order ID missing", 200
 
     # ================= DB =================
+    conn = get_conn()
     cur = conn.cursor()
 
     cur.execute(
@@ -523,16 +535,19 @@ def paystack_webhook():
 
     if not row:
         cur.close()
+        conn.close()
         return "Order not found", 200
 
     user_id, expected_amount, paid = row
 
     if paid == 1:
         cur.close()
+        conn.close()
         return "Already processed", 200
 
     if paid_amount != expected_amount or currency != "NGN":
         cur.close()
+        conn.close()
         return "Wrong payment", 200
 
     # ================= ITEMS =================
@@ -544,6 +559,7 @@ def paystack_webhook():
 
     if not items:
         cur.close()
+        conn.close()
         return "Empty order", 200
 
     # ================= MARK AS PAID =================
@@ -552,7 +568,7 @@ def paystack_webhook():
         (order_id,)
     )
 
-    # ================= USER INFO (FULL NAME FIX) =================
+    # ================= USER INFO =================
     cur.execute(
         """
         SELECT first_name, last_name
@@ -566,7 +582,6 @@ def paystack_webhook():
     if u and (u[0] or u[1]):
         full_name = f"{u[0] or ''} {u[1] or ''}".strip()
     else:
-        # fallback to Telegram profile (NOT username)
         try:
             chat = bot.get_chat(user_id)
             full_name = f"{chat.first_name or ''} {chat.last_name or ''}".strip()
@@ -588,6 +603,7 @@ def paystack_webhook():
 
     conn.commit()
     cur.close()
+    conn.close()
 
     # ================= USER MESSAGE =================
     kb = InlineKeyboardMarkup()
@@ -614,7 +630,7 @@ def paystack_webhook():
         reply_markup=kb
     )
 
-    # ================= ADMIN / GROUP NOTIFICATION =================
+    # ================= ADMIN =================
     if PAYMENT_NOTIFY_GROUP:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -634,8 +650,6 @@ def paystack_webhook():
         )
 
     return "OK", 200
-
-
 
 
 # 
@@ -658,18 +672,19 @@ def deliver_items(call):
         bot.answer_callback_query(call.id, "❌ Invalid order info.")
         return
 
+    conn = get_conn()
     cur = conn.cursor()
 
-    # 1️⃣ CHECK ORDER (INT SAFE)
+    # 1️⃣ CHECK ORDER
     cur.execute(
         "SELECT paid FROM orders WHERE id=%s AND user_id=%s",
         (order_id, user_id)
     )
     row = cur.fetchone()
 
-    # ✅ FIX HERE
     if not row or row[0] != 1:
         cur.close()
+        conn.close()
         bot.answer_callback_query(
             call.id,
             "❌ Your payment has not been confirmed yet."
@@ -683,6 +698,7 @@ def deliver_items(call):
     )
     if cur.fetchone():
         cur.close()
+        conn.close()
 
         kb = InlineKeyboardMarkup()
         kb.add(
@@ -716,6 +732,7 @@ def deliver_items(call):
 
     if not items:
         cur.close()
+        conn.close()
         bot.send_message(user_id, "❌ Order items not found.")
         return
 
@@ -749,6 +766,7 @@ def deliver_items(call):
 
     conn.commit()
     cur.close()
+    conn.close()
 
     if sent == 0:
         bot.send_message(user_id, "❌ Items could not be sent.")
@@ -2369,6 +2387,8 @@ def groupitem_deeplink_handler(msg):
     if not item_ids:
         return
 
+    # ✅ SAFE CONNECTION (NEON SLEEP FIX)
+    conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
     # ========= FETCH ITEMS =========
@@ -2385,16 +2405,19 @@ def groupitem_deeplink_handler(msg):
         items = cur.fetchall()
     except Exception:
         cur.close()
+        conn.close()
         return
 
     if not items:
         cur.close()
+        conn.close()
         return
 
     # ========= FILE_ID REQUIRED =========
     items = [i for i in items if i.get("file_id")]
     if not items:
         cur.close()
+        conn.close()
         return
 
     item_ids_clean = [i["id"] for i in items]
@@ -2413,6 +2436,7 @@ def groupitem_deeplink_handler(msg):
         owned = cur.fetchone()
     except Exception:
         cur.close()
+        conn.close()
         return
 
     if owned:
@@ -2426,6 +2450,7 @@ def groupitem_deeplink_handler(msg):
             reply_markup=kb
         )
         cur.close()
+        conn.close()
         return
 
     # ========= GROUP_KEY PRICING =========
@@ -2440,6 +2465,7 @@ def groupitem_deeplink_handler(msg):
 
     if total <= 0:
         cur.close()
+        conn.close()
         return
 
     # ========= REUSE / CREATE ORDER =========
@@ -2461,6 +2487,7 @@ def groupitem_deeplink_handler(msg):
         row = cur.fetchone()
     except Exception:
         cur.close()
+        conn.close()
         return
 
     if row:
@@ -2482,6 +2509,7 @@ def groupitem_deeplink_handler(msg):
                 )
         except Exception:
             cur.close()
+            conn.close()
             return
 
     # ========= PAYSTACK =========
@@ -2490,6 +2518,7 @@ def groupitem_deeplink_handler(msg):
 
     if not pay_url:
         cur.close()
+        conn.close()
         return
 
     # ========= FIXED TITLE DISPLAY (GROUP_KEY SAFE) =========
@@ -2525,6 +2554,7 @@ def groupitem_deeplink_handler(msg):
     )
 
     cur.close()
+    conn.close()
 
 # ================= ADMIN MANUAL SUPPORT SYSTEM ===========
 
@@ -2752,6 +2782,8 @@ def pay_all_unpaid(call):
     user_name = call.from_user.first_name or "Customer"
     bot.answer_callback_query(call.id)
 
+    # ✅ SAFE CONNECTION (NEON SLEEP FIX)
+    conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
     # ==================================================
@@ -2778,11 +2810,13 @@ def pay_all_unpaid(call):
         rows = cur.fetchall()
     except Exception:
         cur.close()
+        conn.close()
         return
 
     if not rows:
         bot.send_message(uid, "❌ No unpaid orders found.")
         cur.close()
+        conn.close()
         return
 
     # ==================================================
@@ -2796,6 +2830,7 @@ def pay_all_unpaid(call):
     if not items:
         bot.send_message(uid, "❌ No payable items.")
         cur.close()
+        conn.close()
         return
 
     item_ids = list({i["item_id"] for i in items})
@@ -2818,11 +2853,13 @@ def pay_all_unpaid(call):
         owned = cur.fetchone()
     except Exception:
         cur.close()
+        conn.close()
         return
 
     if owned:
         bot.send_message(uid, "✅ You already own some of these items.")
         cur.close()
+        conn.close()
         return
 
     # ==================================================
@@ -2842,6 +2879,7 @@ def pay_all_unpaid(call):
     if total_amount <= 0:
         bot.send_message(uid, "❌ Invalid total amount.")
         cur.close()
+        conn.close()
         return
 
     # ==================================================
@@ -2873,6 +2911,7 @@ def pay_all_unpaid(call):
     except Exception:
         conn.rollback()
         cur.close()
+        conn.close()
         return
 
     # ==================================================
@@ -2902,6 +2941,7 @@ def pay_all_unpaid(call):
         except Exception:
             conn.rollback()
             cur.close()
+            conn.close()
             return
 
     # ==================================================
@@ -2916,6 +2956,7 @@ def pay_all_unpaid(call):
 
     if not pay_url:
         cur.close()
+        conn.close()
         return
 
     # ==================================================
@@ -2954,6 +2995,7 @@ def pay_all_unpaid(call):
     )
 
     cur.close()
+    conn.close()
 
 import uuid
 from datetime import datetime
@@ -2966,6 +3008,26 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 series_sessions = {}
 
 # ===============================
+# START SERIES SESSION (CONNECT)
+# ===============================
+@bot.message_handler(commands=["series"])
+def start_series_upload(m):
+    uid = m.from_user.id
+
+    series_sessions[uid] = {
+        "stage": "collect",
+        "files": [],
+        "hausa_matches": []
+    }
+
+    bot.send_message(
+        uid,
+        "📥 Turo dukkan episodes (video ko document).\n\n"
+        "Idan ka gama rubuta <b>done</b>",
+        parse_mode="HTML"
+    )
+
+# ===============================
 # COLLECT SERIES FILES
 # ===============================
 @bot.message_handler(
@@ -2973,10 +3035,12 @@ series_sessions = {}
     func=lambda m: m.from_user.id in series_sessions
 )
 def series_collect_files(m):
-    uid = m.from_user.id  # ✅ INT
+    uid = m.from_user.id
     sess = series_sessions.get(uid)
+    if not sess:
+        return
 
-    if not sess or sess.get("stage") != "collect":
+    if sess.get("stage") != "collect":
         return
 
     if m.video:
@@ -3010,8 +3074,10 @@ def series_collect_files(m):
 def series_done(m):
     uid = m.from_user.id
     sess = series_sessions.get(uid)
+    if not sess:
+        return
 
-    if not sess or sess.get("stage") != "collect":
+    if sess.get("stage") != "collect":
         return
 
     if not sess.get("files"):
@@ -3042,6 +3108,9 @@ def series_done(m):
 def handle_hausa_choice(c):
     uid = c.from_user.id
     sess = series_sessions.get(uid)
+    if not sess:
+        return
+
     bot.answer_callback_query(c.id)
 
     if c.data == "hausa_no":
@@ -3066,6 +3135,8 @@ def handle_hausa_choice(c):
 def receive_hausa_titles(m):
     uid = m.from_user.id
     sess = series_sessions.get(uid)
+    if not sess:
+        return
 
     titles = [t.strip().lower() for t in m.text.split("\n") if t.strip()]
     matches = []
@@ -3092,6 +3163,8 @@ def receive_hausa_titles(m):
 def series_finalize(m):
     uid = m.from_user.id
     sess = series_sessions.get(uid)
+    if not sess:
+        return
 
     if sess.get("stage") != "meta":
         return
@@ -3107,51 +3180,59 @@ def series_finalize(m):
     poster_file_id = m.photo[-1].file_id
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        INSERT INTO series (title, price, poster_file_id)
-        VALUES (%s, %s, %s)
-        RETURNING id
-        """,
-        (title, price, poster_file_id)
-    )
-    series_id = cur.fetchone()[0]
-
-    item_ids = []
-    created_at = datetime.utcnow()
-    group_key = str(uuid.uuid4())
-
-    for f in sess["files"]:
-        msg = bot.send_document(
-            STORAGE_CHANNEL,
-            f["dm_file_id"],
-            caption=f["file_name"]
-        )
-
-        doc = msg.document or msg.video
-
+    try:
         cur.execute(
             """
-            INSERT INTO items
-            (title, price, file_id, file_name, group_key, created_at, channel_msg_id, channel_username)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO series (title, price, poster_file_id)
+            VALUES (%s, %s, %s)
             RETURNING id
             """,
-            (
-                title,
-                price,
-                doc.file_id if doc else None,
-                f["file_name"],
-                group_key,
-                created_at,
-                msg.message_id,
-                str(STORAGE_CHANNEL)
-            )
+            (title, price, poster_file_id)
         )
-        item_ids.append(cur.fetchone()[0])
+        series_id = cur.fetchone()[0]
 
-    conn.commit()
-    cur.close()
+        item_ids = []
+        created_at = datetime.utcnow()
+        group_key = str(uuid.uuid4())
+
+        for f in sess["files"]:
+            msg = bot.send_document(
+                STORAGE_CHANNEL,
+                f["dm_file_id"],
+                caption=f["file_name"]
+            )
+
+            doc = msg.document or msg.video
+
+            cur.execute(
+                """
+                INSERT INTO items
+                (title, price, file_id, file_name, group_key, created_at, channel_msg_id, channel_username)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    title,
+                    price,
+                    doc.file_id if doc else None,
+                    f["file_name"],
+                    group_key,
+                    created_at,
+                    msg.message_id,
+                    str(STORAGE_CHANNEL)
+                )
+            )
+            item_ids.append(cur.fetchone()[0])
+
+        conn.commit()
+
+    except Exception:
+        conn.rollback()
+        bot.send_message(uid, "❌ Matsala ta faru yayin ajiya.")
+        return
+
+    finally:
+        cur.close()
 
     display_price = f"{price:,}" if has_comma else str(price)
     ids_str = "_".join(str(i) for i in item_ids)
@@ -3177,30 +3258,29 @@ def series_finalize(m):
     del series_sessions[uid]
 @bot.callback_query_handler(func=lambda c: True)
 def all_callbacks(c):
-    uid = c.from_user.id
-    data = c.data
-
+    try:
+        uid = c.from_user.id
+        data = c.data
+    except:
+        return
 
     # ================= FEEDBACK =================
     if data.startswith("feedback:"):
 
-        bot.answer_callback_query(c.id)
-
-        parts = data.split(":", 2)
-        if len(parts) != 3:
-            bot.answer_callback_query(
-                c.id,
-                "⚠️ Invalid feedback data",
-                show_alert=True
-            )
-            return
-
-        mood, order_id = parts[1], parts[2]
-
-        cur = conn.cursor()
-
-        # ================= CHECK ORDER =================
         try:
+            bot.answer_callback_query(c.id)
+            parts = data.split(":", 2)
+            if len(parts) != 3:
+                bot.answer_callback_query(
+                    c.id,
+                    "⚠️ Invalid feedback data",
+                    show_alert=True
+                )
+                return
+
+            mood, order_id = parts[1], parts[2]
+            cur = conn.cursor()
+
             cur.execute(
                 """
                 SELECT paid
@@ -3210,42 +3290,29 @@ def all_callbacks(c):
                 (order_id, uid)
             )
             row = cur.fetchone()
-        except Exception:
-            cur.close()
-            bot.answer_callback_query(
-                c.id,
-                "⚠️ Database error",
-                show_alert=True
+
+            if not row or row[0] != 1:
+                cur.close()
+                bot.answer_callback_query(
+                    c.id,
+                    "⚠️ Wannan order ba naka bane ko ba'a biya ba.",
+                    show_alert=True
+                )
+                return
+
+            cur.execute(
+                "SELECT 1 FROM feedbacks WHERE order_id=%s",
+                (order_id,)
             )
-            return
+            if cur.fetchone():
+                cur.close()
+                bot.answer_callback_query(
+                    c.id,
+                    "Ka riga ka bada ra'ayi.",
+                    show_alert=True
+                )
+                return
 
-        if not row or row[0] != 1:
-            cur.close()
-            bot.answer_callback_query(
-                c.id,
-                "⚠️ Wannan order ba naka bane ko ba'a biya ba.",
-                show_alert=True
-            )
-            return
-
-        # ================= CHECK DUPLICATE =================
-        cur.execute(
-            "SELECT 1 FROM feedbacks WHERE order_id=%s",
-            (order_id,)
-        )
-        exists = cur.fetchone()
-
-        if exists:
-            cur.close()
-            bot.answer_callback_query(
-                c.id,
-                "Ka riga ka bada ra'ayi.",
-                show_alert=True
-            )
-            return
-
-        # ================= INSERT FEEDBACK =================
-        try:
             cur.execute(
                 """
                 INSERT INTO feedbacks (order_id, user_id, mood)
@@ -3254,8 +3321,13 @@ def all_callbacks(c):
                 (order_id, uid, mood)
             )
             conn.commit()
-        except Exception:
             cur.close()
+
+        except Exception:
+            try:
+                cur.close()
+            except:
+                pass
             bot.answer_callback_query(
                 c.id,
                 "⚠️ Ba a iya adana ra'ayi ba",
@@ -3263,9 +3335,6 @@ def all_callbacks(c):
             )
             return
 
-        cur.close()
-
-        # ================= USER INFO =================
         try:
             chat = bot.get_chat(uid)
             fname = chat.first_name or "User"
@@ -3288,13 +3357,11 @@ def all_callbacks(c):
             f"{admin_messages.get(mood, mood)}"
         )
 
-        # ================= SEND TO ADMIN =================
         try:
             bot.send_message(ADMIN_ID, admin_text)
         except:
             pass
 
-        # ================= REMOVE BUTTONS =================
         try:
             bot.edit_message_reply_markup(
                 chat_id=c.message.chat.id,
@@ -3304,7 +3371,6 @@ def all_callbacks(c):
         except:
             pass
 
-        # ================= USER CONFIRM =================
         bot.send_message(
             uid,
             "🙏 Mun gode da ra'ayinka! Za mu yi aiki da shi Insha Allah."
@@ -3312,12 +3378,8 @@ def all_callbacks(c):
         return
 
     # =====================
-    # SAURAN CALLBACKS ZASU BI A NAN
-    # (checkout, cart, resend, my_movies, da sauransu)
+    # GROUPITEM START
     # =====================
-    
-    
-
     if data == "groupitems":
         if uid != ADMIN_ID:
             bot.answer_callback_query(c.id, "Ba izini.")
@@ -3336,10 +3398,9 @@ def all_callbacks(c):
             parse_mode="HTML"
         )
         return
-    
 
     # =====================
-    # CHECKOUT (GROUPITEM LOGIC)
+    # CHECKOUT
     # =====================
     if data == "checkout":
 
@@ -3351,19 +3412,15 @@ def all_callbacks(c):
         order_id = str(uuid.uuid4())
         user_name = c.from_user.full_name or "User"
 
-        # =====================
-        # GROUP BY GROUP_KEY
-        # =====================
         groups = {}
         owned_count = 0
 
         for row in rows:
             try:
                 item_id, title, price, file_id, group_key = row
-            except ValueError:
+            except:
                 continue
 
-            # 🔎 CHECK OWNERSHIP
             cur = conn.cursor()
             cur.execute(
                 "SELECT 1 FROM user_movies WHERE user_id=%s AND item_id=%s LIMIT 1",
@@ -3383,7 +3440,7 @@ def all_callbacks(c):
 
             if key not in groups:
                 groups[key] = {
-                    "price": int(price or 0),   # ✅ group price once
+                    "price": int(price or 0),
                     "items": [],
                     "title": title
                 }
@@ -3395,9 +3452,6 @@ def all_callbacks(c):
                 "title": title
             })
 
-        # =====================
-        # ALL ITEMS ALREADY OWNED
-        # =====================
         if owned_count > 0 and not groups:
             kb = InlineKeyboardMarkup()
             kb.add(InlineKeyboardButton("📽PAID MOVIES", callback_data="my_movies"))
@@ -3413,22 +3467,13 @@ def all_callbacks(c):
             bot.answer_callback_query(c.id)
             return
 
-        # =====================
-        # CALCULATE TOTAL (GROUP PRICE)
-        # =====================
         total = sum(g["price"] for g in groups.values())
         if total <= 0:
             bot.answer_callback_query(c.id, "⚠️ Nothing payable")
             return
 
-        # =====================
-        # COUNT FILMS (GROUPITEM STYLE)
-        # =====================
         film_count = sum(len(g["items"]) for g in groups.values())
 
-        # =====================
-        # CREATE ORDER
-        # =====================
         try:
             cur = conn.cursor()
             cur.execute(
@@ -3448,30 +3493,19 @@ def all_callbacks(c):
 
             conn.commit()
             cur.close()
-        except Exception as e:
+        except Exception:
             conn.rollback()
-            print("❌ CHECKOUT DB ERROR:", e)
             bot.answer_callback_query(c.id, "❌ Checkout failed")
             return
 
-        # =====================
-        # 🧹 CLEAR CART
-        # =====================
         try:
             cur = conn.cursor()
-            cur.execute(
-                "DELETE FROM cart WHERE user_id=%s",
-                (uid,)
-            )
+            cur.execute("DELETE FROM cart WHERE user_id=%s", (uid,))
             conn.commit()
             cur.close()
-        except Exception as e:
+        except:
             conn.rollback()
-            print("❌ CART CLEAR ERROR:", e)
 
-        # =====================
-        # PAYSTACK
-        # =====================
         pay_url = create_paystack_payment(
             uid,
             order_id,
@@ -3483,13 +3517,7 @@ def all_callbacks(c):
             bot.answer_callback_query(c.id, "❌ Payment error")
             return
 
-        # =====================
-        # FORMAT MESSAGE
-        # =====================
-        unique_titles = [
-            g["title"]
-            for g in groups.values()
-        ]
+        unique_titles = [g["title"] for g in groups.values()]
 
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
@@ -3514,7 +3542,7 @@ def all_callbacks(c):
         )
 
         bot.answer_callback_query(c.id)
-        return   
+        return
     
     # =====================
     # REMOVE FROM CART

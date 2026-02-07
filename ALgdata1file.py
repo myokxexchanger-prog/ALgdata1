@@ -3175,7 +3175,50 @@ def series_finalize(m):
 
     bot.send_message(uid, "🎉 Series an adana dukka series lafiya.")
     del series_sessions[uid]
+@bot.callback_query_handler(func=lambda c: True)
+def all_callbacks(c):
+    uid = c.from_user.id
+    data = c.data
 
+    # ================= GROUP ITEMS =================
+    if data == "groupitems":
+
+        if uid != ADMIN_ID:
+            bot.answer_callback_query(c.id, "Ba izini.")
+            return
+
+        series_sessions[uid] = {
+            "files": [],
+            "stage": "collect"
+        }
+
+        bot.answer_callback_query(c.id)
+
+        bot.send_message(
+            uid,
+            "📺 <b>Series Mode ya fara</b>\n\n"
+            "Ka fara turo videos/documents.\n"
+            "Idan ka gama rubuta <b>Done</b>.",
+            parse_mode="HTML"
+        )
+        return
+
+    # ================= CHECKOUT =================
+    if data == "checkout":
+
+        bot.answer_callback_query(c.id)
+
+        rows = get_cart(uid)
+        if not rows:
+            bot.answer_callback_query(c.id, "❌ Cart empty")
+            return
+
+        order_id = str(uuid.uuid4())
+        user_name = c.from_user.full_name or "User"
+
+        # (duk logic ɗinka nan yana nan yadda yake)
+        ...
+        return
 @bot.callback_query_handler(func=lambda c: True)
 def all_callbacks(c):
     uid = c.from_user.id  # ✅ INT

@@ -891,23 +891,39 @@ def howto_update_flow(m):
             bot.send_message(m.chat.id, "❌ Media bai dace ba.")
             return
 
-        cur.execute("SELECT MAX(version) FROM how_to_buy")
-        last_version = cur.fetchone()[0] or 0
+        try:
+            conn = get_conn()
+            cur = conn.cursor()
 
-        cur.execute(
-            """
-            INSERT INTO how_to_buy
-            (hausa_text, english_text, media_file_id, media_type, version)
-            VALUES (%s, %s, %s, %s, %s)
-            """,
-            (
-                state["hausa_text"],
-                state["english_text"],
-                file_id,
-                media_type,
-                last_version + 1
+            cur.execute("SELECT MAX(version) FROM how_to_buy")
+            last_version = cur.fetchone()[0] or 0
+
+            cur.execute(
+                """
+                INSERT INTO how_to_buy
+                (hausa_text, english_text, media_file_id, media_type, version)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (
+                    state["hausa_text"],
+                    state["english_text"],
+                    file_id,
+                    media_type,
+                    last_version + 1
+                )
             )
-        )
+
+            conn.commit()
+            cur.close()
+            conn.close()
+
+        except Exception as e:
+            try:
+                conn.rollback()
+            except:
+                pass
+            print("HOWTO UPDATE ERROR:", e)
+            return
 
         HOWTO_STATE.pop(m.from_user.id, None)
 
@@ -964,9 +980,6 @@ def post_to_channel(m):
 
 
 # ======================================================
-# DEEPLINK HANDLER
-
-# ======================================================
 # HOW TO START (HOWTO ONLY)
 # ======================================================
 
@@ -985,6 +998,7 @@ def howto_start_handler(m):
         return
 
     try:
+        conn = get_conn()
         cur = conn.cursor()
         cur.execute(
             """
@@ -1037,6 +1051,7 @@ def howto_language_switch(c):
         return
 
     try:
+        conn = get_conn()
         cur = conn.cursor()
         cur.execute(
             """
@@ -1075,8 +1090,6 @@ def howto_language_switch(c):
         pass
 
     bot.answer_callback_query(c.id)
-
-
 
  #======================================================
 
@@ -1419,6 +1432,7 @@ def user_buttons(message):
 def clear_cart(uid):
     uid = str(uid)
     try:
+        conn = get_conn()
         cur = conn.cursor()
         cur.execute(
             "DELETE FROM cart WHERE user_id = %s",
@@ -1437,6 +1451,7 @@ def clear_cart(uid):
 def get_cart(uid):
     uid = str(uid)
     try:
+        conn = get_conn()
         cur = conn.cursor()
         cur.execute("""
             SELECT
@@ -1526,12 +1541,15 @@ def cancel_cmd(message):
         bot.reply_to(message, "An soke aikin admin na yanzu.")
         return
 
+
+
 # ==================================================
 # ==================================================
 def get_cart(uid):
     uid = str(uid)  # 🔐 MUHIMMI
 
     try:
+        conn = get_conn()
         cur = conn.cursor()
         cur.execute(
             """
@@ -1557,7 +1575,6 @@ def get_cart(uid):
         return []
 # End
 
-#End
 
 # ========== BUILD CART VIEW (GROUP-AWARE - FIXED) ==========
 def build_cart_view(uid):
@@ -1645,215 +1662,7 @@ def build_cart_view(uid):
     )
 
     return text, kb
-# ================= ADMIN ON / OFF =================
-@bot.message_handler(commands=["on"])
-def admin_on(m):
-    if m.chat.type != "private" or m.from_user.id != ADMIN_ID:
-        return
 
-    conn.execute(
-        """
-        INSERT INTO admin_controls (admin_id, sendmovie_enabled)
-        VALUES (%s, 1)
-        ON CONFLICT (admin_id)
-        DO UPDATE SET sendmovie_enabled = EXCLUDED.sendmovie_enabled
-        """,
-        (ADMIN_ID,)
-    )
-    conn.commit()
-    bot.reply_to(m, "✅ An kunna SENDMOVIE / GETID")
-
-
-@bot.message_handler(commands=["off"])
-def admin_off(m):
-    if m.chat.type != "private" or m.from_user.id != ADMIN_ID:
-        return
-
-    conn.execute(
-        """
-        INSERT INTO admin_controls (admin_id, sendmovie_enabled)
-        VALUES (%s, 0)
-        ON CONFLICT (admin_id)
-        DO UPDATE SET sendmovie_enabled = EXCLUDED.sendmovie_enabled
-        """,
-        (ADMIN_ID,)
-    )
-    conn.commit()
-    bot.reply_to(m, "⛔ An kashe SENDMOVIE / GETID")
-
-
-def admin_feature_enabled():
-    row = conn.execute(
-        "SELECT sendmovie_enabled FROM admin_controls WHERE admin_id=%s",
-        (ADMIN_ID,)
-    ).fetchone()
-    return row and row[0] == 1
-
-
-
-# ================= GETID (FILE_NAME SEARCH) =================
-@bot.message_handler(commands=["getid"])
-def getid_command(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    if not admin_feature_enabled():
-        return
-
-    parts = (message.text or "").split(" ", 1)
-    if len(parts) < 2 or not parts[1].strip():
-        bot.reply_to(
-            message,
-            "Amfani: /getid Sunan item\nMisali: /getid Wutar jeji"
-        )
-        return
-
-    query = parts[1].strip()
-
-    # ====== EXACT MATCH ======
-    row = conn.execute(
-        """
-        SELECT id, title
-        FROM items
-        WHERE LOWER(title) = LOWER(%s)
-        LIMIT 1
-        """,
-        (query,)
-    ).fetchone()
-
-    if row:
-        bot.reply_to(
-            message,
-            f"Kamar yadda ka bukata ga ID ɗin fim din <b>{row[1]}</b>: <code>{row[0]}</code>",
-            parse_mode="HTML"
-        )
-        return
-
-    # ====== CONTAINS MATCH ======
-    rows = conn.execute(
-        """
-        SELECT id, title
-        FROM items
-        WHERE LOWER(title) LIKE LOWER(%s)
-        ORDER BY title ASC
-        LIMIT 10
-        """,
-        (f"%{query}%",)
-    ).fetchall()
-
-    if not rows:
-        bot.reply_to(message, "❌ Ban samu fim da kake nema ba.")
-        return
-
-    if len(rows) == 1:
-        r = rows[0]
-        bot.reply_to(
-            message,
-            f"Kamar yadda ka bukata ga ID ɗin fim din <b>{r[1]}</b>: <code>{r[0]}</code>",
-            parse_mode="HTML"
-        )
-        return
-
-    text_out = "An samu fina-finai masu kama:\n"
-    for r in rows:
-        text_out += f"• {r[1]} — ID: {r[0]}\n"
-
-    bot.reply_to(message, text_out)
-
-
-# ================= SENDMOVIE (ID / GROUP_KEY / NAME) =================
-@bot.message_handler(commands=["sendmovie"])
-def sendmovie_cmd(m):
-    if m.from_user.id != ADMIN_ID:
-        return
-    if not admin_feature_enabled():
-        return
-
-    parts = m.text.split(" ", 1)
-    if len(parts) < 2 or not parts[1].strip():
-        bot.reply_to(
-            m,
-            "Amfani:\n"
-            "/sendmovie 20\n"
-            "/sendmovie 1,2,3,7\n"
-            "/sendmovie karn tsaye S1\n"
-            "/sendmovie avatar"
-        )
-        return
-
-    raw = parts[1].strip()
-    rows = []
-    not_found_ids = []
-
-    # ================= ID MODE =================
-    ids = [int(x) for x in raw.replace(" ", "").split(",") if x.isdigit()]
-
-    if ids:
-        placeholders = ",".join(["%s"] * len(ids))
-
-        rows = conn.execute(
-            f"""
-            SELECT file_id, title
-            FROM items
-            WHERE id IN ({placeholders})
-            """,
-            ids
-        ).fetchall()
-
-        found_ids = {
-            r[0] for r in conn.execute(
-                f"SELECT id FROM items WHERE id IN ({placeholders})",
-                ids
-            ).fetchall()
-        }
-
-        not_found_ids = [str(i) for i in ids if i not in found_ids]
-
-    else:
-        q = raw.lower()
-
-        rows = conn.execute(
-            """
-            SELECT file_id, title
-            FROM items
-            WHERE LOWER(group_key) = %s
-            ORDER BY id ASC
-            """,
-            (q,)
-        ).fetchall()
-
-        if not rows:
-            rows = conn.execute(
-                """
-                SELECT file_id, title
-                FROM items
-                WHERE LOWER(title) LIKE %s
-                   OR LOWER(file_name) LIKE %s
-                ORDER BY title ASC
-                """,
-                (f"%{q}%", f"%{q}%")
-            ).fetchall()
-
-    if not rows:
-        bot.reply_to(m, "❌ Ban samu fim ko group ɗin da ka nema ba.")
-        return
-
-    sent = 0
-    for file_id, title in rows:
-        try:
-            try:
-                bot.send_video(m.chat.id, file_id, caption=f"🎬 {title}")
-            except:
-                bot.send_document(m.chat.id, file_id, caption=f"🎬 {title}")
-            sent += 1
-        except Exception as e:
-            print("sendmovie error:", e)
-
-    report = f"✅ An tura fina-finai: {sent}"
-    if not_found_ids:
-        report += "\n\n❌ Ba a samu waɗannan IDs ba:\n" + ", ".join(not_found_ids)
-
-    bot.reply_to(m, report)
-# End
     # ================= USER RESEND SEARCH (USING user_movies) =================
 
 @bot.message_handler(
@@ -1889,6 +1698,7 @@ def cancel_order_handler(c):
     except Exception:
         return
 
+    conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
     # 🔎 Tabbatar order na wannan user ne kuma unpaid
@@ -1906,6 +1716,7 @@ def cancel_order_handler(c):
         order = cur.fetchone()
     except Exception:
         cur.close()
+        conn.close()
         return
 
     if not order:
@@ -1915,6 +1726,7 @@ def cancel_order_handler(c):
             parse_mode="HTML"
         )
         cur.close()
+        conn.close()
         return
 
     # 🧹 Goge order_items gaba ɗaya
@@ -1934,6 +1746,7 @@ def cancel_order_handler(c):
     except Exception:
         conn.rollback()
         cur.close()
+        conn.close()
         return
 
     bot.send_message(
@@ -1943,6 +1756,7 @@ def cancel_order_handler(c):
     )
 
     cur.close()
+    conn.close()
 
 
 # ================== END RUKUNI B ==================
@@ -2657,67 +2471,67 @@ def admin_support_flow(m):
     stage = data.get("stage")
     text = (m.text or "").strip()
 
-    # ===== RESEND ORDER =====
-    if stage == "wait_order_id":
+    conn = None
+    cur = None
 
-        cur.execute(
-            "SELECT user_id, amount, paid FROM orders WHERE id=%s",
-            (text,)
-        )
-        row = cur.fetchone()
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
 
-        # ❌ ORDER ID BAYA WUJUWA
-        if not row:
-            ADMIN_SUPPORT.pop(m.from_user.id, None)
+        # ===== RESEND ORDER =====
+        if stage == "wait_order_id":
+
+            cur.execute(
+                "SELECT user_id, amount, paid FROM orders WHERE id=%s",
+                (text,)
+            )
+            row = cur.fetchone()
+
+            if not row:
+                ADMIN_SUPPORT.pop(m.from_user.id, None)
+                bot.send_message(
+                    m.chat.id,
+                    "❌ <b>Order ID bai dace ba.</b>\nBabu wannan order a system.",
+                    parse_mode="HTML"
+                )
+                return
+
+            user_id, amount, paid = row
+
+            if paid != 1:
+                ADMIN_SUPPORT.pop(m.from_user.id, None)
+                bot.send_message(
+                    m.chat.id,
+                    "⚠️ <b>ORDER BAI BIYA BA</b>\nFaɗa wa user ya kammala biya.",
+                    parse_mode="HTML"
+                )
+                return
+
+            cur.execute(
+                "SELECT item_id FROM order_items WHERE order_id=%s",
+                (text,)
+            )
+            items = cur.fetchall()
+
+            if not items:
+                ADMIN_SUPPORT.pop(m.from_user.id, None)
+                bot.send_message(
+                    m.chat.id,
+                    "⚠️ Wannan order ɗin babu items a cikinsa.\nDuba order_items table."
+                )
+                return
+
+            item_ids = [i[0] for i in items]
+
+            ADMIN_SUPPORT[m.from_user.id] = {
+                "stage": "resend_confirm",
+                "user_id": user_id,
+                "items": item_ids
+            }
+
             bot.send_message(
                 m.chat.id,
-                "❌ <b>Order ID bai dace ba.</b>\nBabu wannan order a system.",
-                parse_mode="HTML"
-            )
-            return
-
-        user_id, amount, paid = row
-
-        # ⚠️ ORDER BAI BIYA BA
-        if paid != 1:
-            ADMIN_SUPPORT.pop(m.from_user.id, None)
-            bot.send_message(
-                m.chat.id,
-                "⚠️ <b>ORDER BAI BIYA BA</b>\nFaɗa wa user ya kammala biya.",
-                parse_mode="HTML"
-            )
-            return
-
-        cur.execute(
-            """
-            SELECT item_id
-            FROM order_items
-            WHERE order_id=%s
-            """,
-            (text,)
-        )
-        items = cur.fetchall()
-
-        # ❌ BA ITEMS
-        if not items:
-            ADMIN_SUPPORT.pop(m.from_user.id, None)
-            bot.send_message(
-                m.chat.id,
-                "⚠️ Wannan order ɗin babu items a cikinsa.\nDuba order_items table."
-            )
-            return
-
-        item_ids = [i[0] for i in items]
-
-        ADMIN_SUPPORT[m.from_user.id] = {
-            "stage": "resend_confirm",
-            "user_id": user_id,
-            "items": item_ids
-        }
-
-        bot.send_message(
-            m.chat.id,
-            f"""✅ <b>ORDER VERIFIED</b>
+                f"""✅ <b>ORDER VERIFIED</b>
 
 🆔 Order ID: <code>{text}</code>
 👤 User ID: <code>{user_id}</code>
@@ -2725,88 +2539,96 @@ def admin_support_flow(m):
 🎬 Items: {len(item_ids)}
 
 Tura <b>/sendall</b> domin a sake tura items.""",
-            parse_mode="HTML"
-        )
-        return
-
-    # ===== GIFT FLOW =====
-    if stage == "gift_user":
-        if not text.isdigit():
-            bot.send_message(m.chat.id, "❌ Rubuta USER ID mai inganci.")
-            return
-
-        data["gift_user"] = int(text)
-        data["stage"] = "gift_message"
-
-        bot.send_message(
-            m.chat.id,
-            "✍️ Rubuta <b>MESSAGE</b> da user zai gani:",
-            parse_mode="HTML"
-        )
-        return
-
-    if stage == "gift_message":
-        data["gift_message"] = text
-        data["stage"] = "gift_item"
-
-        bot.send_message(
-            m.chat.id,
-            "🎬 Rubuta <b>SUNAN ITEM</b> (title ko file name):",
-            parse_mode="HTML"
-        )
-        return
-
-    if stage == "gift_item":
-        q = text.lower()
-
-        cur.execute(
-            """
-            SELECT file_id, title
-            FROM items
-            WHERE LOWER(title) LIKE %s
-               OR LOWER(file_name) LIKE %s
-            ORDER BY id DESC
-            LIMIT 1
-            """,
-            (f"%{q}%", f"%{q}%")
-        )
-        row = cur.fetchone()
-
-        if not row:
-            ADMIN_SUPPORT.pop(m.from_user.id, None)
-            bot.send_message(
-                m.chat.id,
-                "❌ Ba a samu item a ITEMS table ba.",
                 parse_mode="HTML"
             )
             return
 
-        file_id, title = row
+        # ===== GIFT FLOW =====
+        if stage == "gift_user":
+            if not text.isdigit():
+                bot.send_message(m.chat.id, "❌ Rubuta USER ID mai inganci.")
+                return
 
-        try:
-            bot.send_video(
-                data["gift_user"],
-                file_id,
-                caption=data["gift_message"]
-            )
-        except:
-            bot.send_document(
-                data["gift_user"],
-                file_id,
-                caption=data["gift_message"]
-            )
+            data["gift_user"] = int(text)
+            data["stage"] = "gift_message"
 
-        bot.send_message(
-            m.chat.id,
-            f"""🎁 <b>An kammala</b>
+            bot.send_message(
+                m.chat.id,
+                "✍️ Rubuta <b>MESSAGE</b> da user zai gani:",
+                parse_mode="HTML"
+            )
+            return
+
+        if stage == "gift_message":
+            data["gift_message"] = text
+            data["stage"] = "gift_item"
+
+            bot.send_message(
+                m.chat.id,
+                "🎬 Rubuta <b>SUNAN ITEM</b> (title ko file name):",
+                parse_mode="HTML"
+            )
+            return
+
+        if stage == "gift_item":
+            q = text.lower()
+
+            cur.execute(
+                """
+                SELECT file_id, title
+                FROM items
+                WHERE LOWER(title) LIKE %s
+                   OR LOWER(file_name) LIKE %s
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (f"%{q}%", f"%{q}%")
+            )
+            row = cur.fetchone()
+
+            if not row:
+                ADMIN_SUPPORT.pop(m.from_user.id, None)
+                bot.send_message(
+                    m.chat.id,
+                    "❌ Ba a samu item a ITEMS table ba.",
+                    parse_mode="HTML"
+                )
+                return
+
+            file_id, title = row
+
+            try:
+                bot.send_video(
+                    data["gift_user"],
+                    file_id,
+                    caption=data["gift_message"]
+                )
+            except:
+                bot.send_document(
+                    data["gift_user"],
+                    file_id,
+                    caption=data["gift_message"]
+                )
+
+            bot.send_message(
+                m.chat.id,
+                f"""🎁 <b>An kammala</b>
 
 👤 User ID: <code>{data['gift_user']}</code>
 🎬 Item: <b>{title}</b>""",
-            parse_mode="HTML"
-        )
+                parse_mode="HTML"
+            )
 
-        ADMIN_SUPPORT.pop(m.from_user.id, None)
+            ADMIN_SUPPORT.pop(m.from_user.id, None)
 
+    except Exception as e:
+        print("ADMIN_SUPPORT_FLOW DB ERROR:", e)
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 import uuid
 from psycopg2.extras import RealDictCursor
 
@@ -4446,68 +4268,88 @@ def all_callbacks(c):
         pass
 
 
-# ========== /myorders command (SAFE – ITEMS BASED) ==========
+# ========== /myorders command (SAFE – ITEMS BASED | POSTGRES) ==========
 @bot.message_handler(commands=["myorders"])
 def myorders(message):
     uid = message.from_user.id
 
-    rows = conn.execute(
-        """
-        SELECT id, amount, paid
-        FROM orders
-        WHERE user_id=%s
-        ORDER BY created_at DESC
-        """,
-        (uid,)
-    ).fetchall()
+    conn = None
+    cur = None
 
-    if not rows:
-        bot.reply_to(
-            message,
-            "❌ You don’t have any orders yet.",
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            SELECT id, amount, paid
+            FROM orders
+            WHERE user_id=%s
+            ORDER BY created_at DESC
+            """,
+            (uid,)
+        )
+        rows = cur.fetchall()
+
+        if not rows:
+            bot.reply_to(
+                message,
+                "❌ You don’t have any orders yet.",
+                reply_markup=reply_menu(uid)
+            )
+            return
+
+        txt = "🛒 <b>Your Orders</b>\n\n"
+
+        for oid, amount, paid in rows:
+            amount = int(amount or 0)
+
+            # 🔒 SAFE COUNT (order_items ONLY)
+            cur.execute(
+                """
+                SELECT COUNT(*)
+                FROM order_items
+                WHERE order_id=%s
+                """,
+                (oid,)
+            )
+            info = cur.fetchone()
+            items_count = info[0] if info else 0
+
+            # 🛡 KARIYA: idan babu item kwata-kwata, tsallake
+            if items_count <= 0:
+                continue
+
+            # 🏷 LABEL
+            label = "1 item" if items_count == 1 else f"Group items ({items_count})"
+
+            txt += (
+                f"🆔 <code>{oid}</code>\n"
+                f"📦 {label}\n"
+                f"💰 Amount: ₦{amount}\n"
+                f"💳 Status: {'✅ Paid' if paid else '❌ Unpaid'}\n\n"
+            )
+
+        bot.send_message(
+            uid,
+            txt,
+            parse_mode="HTML",
             reply_markup=reply_menu(uid)
         )
-        return
 
-    txt = "🛒 <b>Your Orders</b>\n\n"
-
-    for row in rows:
-        oid = row["id"]
-        amount = int(row["amount"] or 0)
-        paid = row["paid"]
-
-        # 🔒 SAFE COUNT (order_items ONLY)
-        info = conn.execute(
-            """
-            SELECT COUNT(*) AS cnt
-            FROM order_items
-            WHERE order_id=%s
-            """,
-            (oid,)
-        ).fetchone()
-
-        items_count = info["cnt"] if info else 0
-
-        # 🛡 KARIYA: idan babu item kwata-kwata, tsallake
-        if items_count <= 0:
-            continue
-
-        # 🏷 LABEL
-        label = "1 item" if items_count == 1 else f"Group items ({items_count})"
-
-        txt += (
-            f"🆔 <code>{oid}</code>\n"
-            f"📦 {label}\n"
-            f"💰 Amount: ₦{amount}\n"
-            f"💳 Status: {'✅ Paid' if paid else '❌ Unpaid'}\n\n"
+    except Exception as e:
+        print("MYORDERS DB ERROR:", e)
+        bot.reply_to(
+            message,
+            "⚠️ An samu matsala. Sake gwadawa daga baya.",
+            reply_markup=reply_menu(uid)
         )
 
-    bot.send_message(
-        uid,
-        txt,
-        parse_mode="HTML",
-        reply_markup=reply_menu(uid)
-    )
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 #s ========== ADMIN FILE UPLOAD (ITEMS ONLY
 # ================== SALES REPORT SYSTEM (ITEMS BASED – POSTGRES FIXED) ==================
 

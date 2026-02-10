@@ -452,16 +452,23 @@ def paystack_callback():
 # ========= FEEDBACK =========
 def send_feedback_prompt(user_id, order_id):
     try:
+        conn = get_conn()          # ✅ ABIN DA YA RASA
         cur = conn.cursor()
+
         cur.execute(
             "SELECT 1 FROM feedbacks WHERE order_id = %s",
             (order_id,)
         )
         exists = cur.fetchone()
+
         cur.close()
-    except Exception:
+        conn.close()
+
+    except Exception as e:
+        print("FEEDBACK DB ERROR:", e)
         try:
             cur.close()
+            conn.close()
         except:
             pass
         return  # DB ta kasa tashi → kar bot ya mutu
@@ -485,8 +492,11 @@ def send_feedback_prompt(user_id, order_id):
             "We hope you enjoyed your shopping 🥰\nPlease choose how you’re feeling right now.",
             reply_markup=kb
         )
-    except Exception:
-        pass
+        print("✅ Feedback prompt sent:", user_id, order_id)
+    except Exception as e:
+        print("FEEDBACK SEND ERROR:", e)
+
+
 
 
 

@@ -489,7 +489,7 @@ def send_feedback_prompt(user_id, order_id):
     try:
         bot.send_message(
             user_id,
-            "We hope you enjoyed your shopping 🥰\nPlease choose how you’re feeling right now.",
+            "We hope you enjoyed your shopping 🥰\nPlease choose how you’re feeling right now👇👇.",
             reply_markup=kb
         )
         print("✅ Feedback prompt sent:", user_id, order_id)
@@ -3092,6 +3092,8 @@ def all_callbacks(c):
     except:
         return
 
+  
+
     # ================= FEEDBACK =================
     if data.startswith("feedback:"):
 
@@ -3107,6 +3109,8 @@ def all_callbacks(c):
                 return
 
             mood, order_id = parts[1], parts[2]
+
+            conn = get_conn()              # ✅ GYARA KADAI
             cur = conn.cursor()
 
             cur.execute(
@@ -3121,6 +3125,7 @@ def all_callbacks(c):
 
             if not row or row[0] != 1:
                 cur.close()
+                conn.close()               # ✅ GYARA KADAI
                 bot.answer_callback_query(
                     c.id,
                     "⚠️ Wannan order ba naka bane ko ba'a biya ba.",
@@ -3134,6 +3139,7 @@ def all_callbacks(c):
             )
             if cur.fetchone():
                 cur.close()
+                conn.close()               # ✅ GYARA KADAI
                 bot.answer_callback_query(
                     c.id,
                     "Ka riga ka bada ra'ayi.",
@@ -3150,10 +3156,12 @@ def all_callbacks(c):
             )
             conn.commit()
             cur.close()
+            conn.close()                   # ✅ GYARA KADAI
 
         except Exception:
             try:
                 cur.close()
+                conn.close()               # ✅ GYARA KADAI
             except:
                 pass
             bot.answer_callback_query(
@@ -3204,6 +3212,8 @@ def all_callbacks(c):
             "🙏 Mun gode da ra'ayinka! Za mu yi aiki da shi Insha Allah."
         )
         return
+
+
 
     # =====================
     # GROUPITEM START

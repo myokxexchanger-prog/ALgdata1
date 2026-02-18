@@ -610,18 +610,40 @@ def paystack_webhook():
         except:
             full_name = "User"
 
-    # ================= TITLES =================
+    # ================= TITLES (GROUPED - NO DUPLICATE) =================
     cur.execute(
         """
-        SELECT i.title
+        SELECT i.title, i.group_key
         FROM order_items oi
         JOIN items i ON i.id = oi.item_id
         WHERE oi.order_id=%s
         """,
         (order_id,)
     )
-    titles = [r[0] for r in cur.fetchall()]
-    titles_text = ", ".join(titles) if titles else "N/A"
+
+    rows = cur.fetchall()
+
+    groups = {}
+
+    for title, group_key in rows:
+        key = group_key or f"single_{title}"
+
+        if key not in groups:
+            groups[key] = {
+                "title": title,
+                "count": 0
+            }
+
+        groups[key]["count"] += 1
+
+    lines = []
+    for g in groups.values():
+        if g["count"] > 1:
+            lines.append(f"{g['title']} ({g['count']})")
+        else:
+            lines.append(f"{g['title']}")
+
+    titles_text = ", ".join(lines) if lines else "N/A"
 
     conn.commit()
     cur.close()
@@ -674,30 +696,24 @@ def paystack_webhook():
     return "OK", 200
 
 
-# 
-# ========= TELEGRAM WEBHOOK =========
-@app.route("/telegram", methods=["POST"])
-def telegram_webhook():
-    update = telebot.types.Update.de_json(
-        request.stream.read().decode("utf-8")
-    )
-    bot.process_new_updates([update])
-    return "OK", 200
+import time
+from telebot.apihelper import ApiTelegramException
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("deliver:"))
 def deliver_items(call):
+
     user_id = call.from_user.id
 
     try:
         _, order_id = call.data.split(":", 1)
     except:
-        bot.answer_callback_query(call.id, "❌ Invalid order info.")
+        bot.answer_callback_query(call.id, "Invalid order information.")
         return
 
     conn = get_conn()
     cur = conn.cursor()
 
-    # 1️⃣ CHECK ORDER
+    # ================= CHECK ORDER =================
     cur.execute(
         "SELECT paid FROM orders WHERE id=%s AND user_id=%s",
         (order_id, user_id)
@@ -709,11 +725,11 @@ def deliver_items(call):
         conn.close()
         bot.answer_callback_query(
             call.id,
-            "❌ Your payment has not been confirmed yet."
+            "Your payment has not been confirmed yet."
         )
         return
 
-    # 2️⃣ PREVENT RESEND
+    # ================= PREVENT RESEND =================
     cur.execute(
         "SELECT 1 FROM user_movies WHERE order_id=%s LIMIT 1",
         (order_id,)
@@ -725,22 +741,23 @@ def deliver_items(call):
         kb = InlineKeyboardMarkup()
         kb.add(
             InlineKeyboardButton(
-                "📽 PAID MOVIES",
+                "PAID MOVIES",
                 callback_data="my_movies"
             )
         )
 
         bot.send_message(
             user_id,
-            "ℹ️ You have already received this movie.\n\n"
-            "📽 You can download it again from Paid Movies.",
+            "You have already received this movie.\n\n"
+            "You can download it again from Paid Movies.",
             reply_markup=kb
         )
         return
 
-    bot.answer_callback_query(call.id, "📤 Sending your items…")
+    # remove popup message completely
+    bot.answer_callback_query(call.id)
 
-    # 3️⃣ FETCH ITEMS
+    # ================= FETCH ITEMS =================
     cur.execute(
         """
         SELECT oi.item_id, oi.file_id, i.title
@@ -755,13 +772,52 @@ def deliver_items(call):
     if not items:
         cur.close()
         conn.close()
-        bot.send_message(user_id, "❌ Order items not found.")
+        bot.send_message(user_id, "Order items not found.")
         return
 
+    # ================= SAFE SEND FUNCTION =================
+    def safe_send(chat_id, file_id, title):
+
+        while True:
+            try:
+                try:
+                    return bot.send_video(
+                        chat_id,
+                        file_id,
+                        caption=f"{title}"
+                    )
+                except:
+                    return bot.send_document(
+                        chat_id,
+                        file_id,
+                        caption=f"{title}"
+                    )
+
+            except ApiTelegramException as e:
+
+                if e.error_code == 429:
+                    retry = int(e.result_json["parameters"]["retry_after"])
+
+                    # ONLY visible message to user
+                    bot.send_message(
+                        chat_id,
+                        "Wait...\n"
+                        "Please wait, delivery will continue in a few seconds."
+                    )
+
+                    time.sleep(retry)
+                    continue
+                else:
+                    return None
+
+            except:
+                return None
+
+    # ================= SEND LOOP =================
     sent = 0
 
-    # 4️⃣ SEND ITEMS
     for item_id, file_id, title in items:
+
         if not file_id:
             continue
 
@@ -772,10 +828,10 @@ def deliver_items(call):
         if cur.fetchone():
             continue
 
-        try:
-            bot.send_video(user_id, file_id, caption=f"🎬 {title}")
-        except:
-            bot.send_document(user_id, file_id, caption=f"📁 {title}")
+        msg = safe_send(user_id, file_id, title)
+
+        if not msg:
+            continue
 
         cur.execute(
             """
@@ -784,25 +840,28 @@ def deliver_items(call):
             """,
             (user_id, item_id, order_id)
         )
+
         sent += 1
+
+        time.sleep(1.0)
 
     conn.commit()
     cur.close()
     conn.close()
 
     if sent == 0:
-        bot.send_message(user_id, "❌ Items could not be sent.")
+        bot.send_message(user_id, "Items could not be delivered.")
         return
 
     bot.send_message(
         user_id,
-        f"✅ Your movie(s) have been delivered ({sent}).\n"
-        "Thank you for your purchase 🤗"
+        f"Your movie(s) have been delivered ({sent}).\n"
+        "Thank you for your purchase."
     )
 
     send_feedback_prompt(user_id, order_id)
- #=========================================================
-# ========= HARD START HOWTO (DEEPLINK LOCK) ===============
+
+
 # =========================================================
 @bot.message_handler(
     func=lambda m: (
@@ -2220,28 +2279,56 @@ def start_handler(msg):
 from psycopg2.extras import RealDictCursor
 import uuid
 import time
+import re
 
 @bot.message_handler(func=lambda m: m.text and m.text.startswith("/start groupitem_"))
 def groupitem_deeplink_handler(msg):
     uid = msg.from_user.id
     user_name = msg.from_user.first_name or "Customer"
 
-    # ========= PARSE ITEM IDS =========
+    # ========= PARSE ITEM IDS + GROUP KEYS =========
     try:
         raw = msg.text.split("groupitem_", 1)[1]
-        sep = "_" if "_" in raw else ","
-        item_ids = [int(x) for x in raw.split(sep) if x.strip().isdigit()]
+        tokens = [x.strip() for x in re.split(r"[_,\s]+", raw) if x.strip()]
     except Exception:
         return
 
-    if not item_ids:
+    if not tokens:
         return
 
-    # ✅ SAFE CONNECTION (NEON SLEEP FIX)
+    # ✅ SAFE CONNECTION
     conn = get_conn()
     if not conn:
         return
     cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    item_ids = []
+
+    try:
+        for token in tokens:
+
+            # ==== IF ID ====
+            if token.isdigit():
+                item_ids.append(int(token))
+
+            # ==== IF GROUP KEY ====
+            else:
+                cur.execute(
+                    "SELECT id FROM items WHERE group_key=%s",
+                    (token,)
+                )
+                rows = cur.fetchall()
+                item_ids.extend([r["id"] for r in rows])
+
+    except Exception:
+        cur.close()
+        conn.close()
+        return
+
+    if not item_ids:
+        cur.close()
+        conn.close()
+        return
 
     # ========= FETCH ITEMS =========
     try:
@@ -2375,7 +2462,7 @@ def groupitem_deeplink_handler(msg):
         conn.close()
         return
 
-    # ========= FIXED TITLE DISPLAY (GROUP_KEY SAFE) =========
+    # ========= FIXED TITLE DISPLAY =========
     unique_titles = [
         i["title"]
         for _, i in {
@@ -2409,8 +2496,6 @@ def groupitem_deeplink_handler(msg):
 
     cur.close()
     conn.close()
-
-
         
 
 # ========= BUYD (ITEM ONLY | DEEP LINK → DM) =========
@@ -2649,7 +2734,6 @@ def pay_all_unpaid(call):
     user_name = call.from_user.first_name or "Customer"
     bot.answer_callback_query(call.id)
 
-    # ✅ SAFE CONNECTION (NEON SLEEP FIX)
     conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
@@ -2782,7 +2866,7 @@ def pay_all_unpaid(call):
         return
 
     # ==================================================
-    # 🔥 DELETE OLD ORDERS (EXCEPT NEW ONE)
+    # 🔥 DELETE OLD ORDERS
     # ==================================================
     old_order_ids = [oid for oid in old_order_ids if oid != order_id]
 
@@ -2827,6 +2911,12 @@ def pay_all_unpaid(call):
         return
 
     # ==================================================
+    # 🔥 NEW: GROUP + ITEM SUPPORT (LIKE ADD FILM BLOCK)
+    # ==================================================
+    group_keys_string = "|".join(groups.keys())
+    item_ids_string = "|".join(str(i) for i in item_ids)
+
+    # ==================================================
     # 7️⃣ DISPLAY
     # ==================================================
     unique_titles = [
@@ -2838,8 +2928,27 @@ def pay_all_unpaid(call):
     ]
 
     kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
-    kb.add(InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{order_id}"))
+    kb.add(
+        InlineKeyboardButton(
+            "💳 PAY NOW",
+            url=pay_url
+        )
+    )
+
+    # 🔥 GROUP-AWARE CALLBACK SUPPORT
+    kb.add(
+        InlineKeyboardButton(
+            "🛒 Add All to Cart",
+            callback_data=f"addcartmulti:{group_keys_string}:{item_ids_string}"
+        )
+    )
+
+    kb.add(
+        InlineKeyboardButton(
+            "❌ Cancel",
+            callback_data=f"cancel:{order_id}"
+        )
+    )
 
     bot.send_message(
         uid,
@@ -2847,12 +2956,13 @@ def pay_all_unpaid(call):
 
 👤 <b>Your name is:</b> {user_name}
 
-🎬 <b> Films:</b>
+🎬 <b>Films:</b>
 {", ".join(unique_titles)}
 
 📦 <b>Films:</b> {len(item_ids)}
 🗂 <b>G-orders:</b> {len(groups)}
-💵 <b> Total amount:</b> ₦{total_amount}
+
+💵 <b>Total amount:</b> ₦{total_amount}
 
 🆔 <b>Order ID:</b>
 <code>{order_id}</code>
@@ -2864,62 +2974,135 @@ def pay_all_unpaid(call):
     cur.close()
     conn.close()
 
+
 import uuid
 from datetime import datetime
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.apihelper import ApiTelegramException
 
 series_sessions = {}
 
 # ===============================
-# COLLECT SERIES FILES
+# COLLECT SERIES FILES (PRO EDIT VERSION)
 # ===============================
 @bot.message_handler(
     content_types=["video", "document"],
     func=lambda m: m.from_user.id in series_sessions
 )
 def series_collect_files(m):
+
     uid = m.from_user.id
     sess = series_sessions.get(uid)
 
     if not sess or sess.get("stage") != "collect":
         return
 
-    if m.video:
-        dm_file_id = m.video.file_id
-        file_name = m.video.file_name or "video.mp4"
-    else:
-        dm_file_id = m.document.file_id
-        file_name = m.document.file_name or "file"
+    try:
+        # ================= GET FILE =================
+        if m.video:
+            dm_file_id = m.video.file_id
+            file_name = m.video.file_name or "video.mp4"
+        else:
+            dm_file_id = m.document.file_id
+            file_name = m.document.file_name or "file"
 
-    sess["files"].append({
-        "dm_file_id": dm_file_id,
-        "file_name": file_name
-    })
+        # ================= SAVE =================
+        sess["files"].append({
+            "dm_file_id": dm_file_id,
+            "file_name": file_name
+        })
 
-    bot.send_message(uid, f"✅ An karɓi: <b>{file_name}</b>", parse_mode="HTML")
+        total = len(sess["files"])
+
+        # ================= CREATE OR EDIT MESSAGE =================
+        if not sess.get("progress_msg_id"):
+
+            msg = bot.send_message(
+                uid,
+                f"✅ An karɓi (1)\n📂 {file_name}"
+            )
+            sess["progress_msg_id"] = msg.message_id
+
+        else:
+            bot.edit_message_text(
+                f"✅ An karɓi ({total})\n📂 {file_name}",
+                uid,
+                sess["progress_msg_id"]
+            )
+
+    except ApiTelegramException as e:
+        bot.send_message(
+            uid,
+            f"❌ Telegram error:\n{str(e)}"
+        )
+
+    except Exception as e:
+        bot.send_message(
+            uid,
+            f"❌ System error:\n{str(e)}"
+        )
+
 
 # ===============================
-# DONE
+# OPTIONAL: CALL THIS WHEN DONE BUTTON IS PRESSED
+# ===============================
+def finish_series_collection(uid):
+
+    sess = series_sessions.get(uid)
+    if not sess:
+        return
+
+    total = len(sess.get("files", []))
+
+    if total == 0:
+        bot.send_message(uid, "⚠️ Babu file da aka karɓa.")
+        return
+
+    try:
+        bot.edit_message_text(
+            f"✅ An karɓi ({total})\n\n🎉 An karɓi dukkan files lafiya.",
+            uid,
+            sess.get("progress_msg_id")
+        )
+    except:
+        bot.send_message(
+            uid,
+            f"✅ An karɓi ({total})\n🎉 An karɓi dukka lafiya."
+        )
+
+
+# ===============================
+# DONE (CLEAN VERSION - NO LIST)
 # ===============================
 @bot.message_handler(
     func=lambda m: m.text and m.text.lower().strip() == "done" and m.from_user.id in series_sessions
 )
 def series_done(m):
+
     uid = m.from_user.id
     sess = series_sessions.get(uid)
 
-    if sess.get("stage") != "collect":
+    if not sess or sess.get("stage") != "collect":
         return
 
-    if not sess.get("files"):
+    files = sess.get("files", [])
+
+    if not files:
         bot.send_message(uid, "❌ Babu fim da aka turo.")
         return
 
-    text = "✅ <b>An karɓi fina-finai:</b>\n\n"
-    for f in sess["files"]:
-        text += f"• {f['file_name']}\n"
+    total = len(files)
 
-    text += "\n❓ <b>Akwai Hausa series a ciki?</b>"
+    # sunan fim na ƙarshe da aka karɓa
+    last_name = files[-1]["file_name"]
+
+    # ================= MESSAGE =================
+    text = (
+        f"✅ <b>An karɓi:</b> {last_name}\n"
+        f"📦 <b>Adadi:</b> ({total})\n\n"
+        f"❓ <b>Akwai Hausa series a ciki?</b>"
+    )
+
     sess["stage"] = "ask_hausa"
 
     kb = InlineKeyboardMarkup()
@@ -2929,7 +3112,6 @@ def series_done(m):
     )
 
     bot.send_message(uid, text, parse_mode="HTML", reply_markup=kb)
-
 # ===============================
 # HAUSA CHOICE
 # ===============================
@@ -2976,22 +3158,35 @@ def receive_hausa_titles(m):
 
     bot.send_message(uid, "📸 Yanzu turo poster + caption (suna da farashi)")
 
+
 # ===============================
-# FINALIZE (UPLOAD + DB) ✅ FIXED
+# FINALIZE (UPLOAD + DB)
 # ===============================
+from telebot.apihelper import ApiTelegramException
+import time
+import uuid
+from datetime import datetime
+
 @bot.message_handler(
     content_types=["photo"],
     func=lambda m: m.from_user.id in series_sessions
 )
 def series_finalize(m):
-    uid = m.from_user.id
+
+    try:
+        uid = m.from_user.id
+        data = m.caption or ""
+    except:
+        return
+
     sess = series_sessions.get(uid)
 
     if sess.get("stage") != "meta":
         return
 
+    # ================= PARSE CAPTION =================
     try:
-        title, raw_price = m.caption.strip().rsplit("\n", 1)
+        title, raw_price = data.strip().rsplit("\n", 1)
         has_comma = "," in raw_price
         price = int(raw_price.replace(",", "").strip())
     except:
@@ -3000,87 +3195,165 @@ def series_finalize(m):
 
     poster_file_id = m.photo[-1].file_id
 
-    # ✅ MUHIMMI: fresh DB connection
-    conn = get_conn()
-    cur = conn.cursor()
+    # ================= DB CONNECT =================
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+    except:
+        return
 
+    # ================= CREATE SERIES =================
     try:
         cur.execute(
-            """
-            INSERT INTO series (title, price, poster_file_id)
-            VALUES (%s, %s, %s)
-            RETURNING id
-            """,
+            "INSERT INTO series (title, price, poster_file_id) VALUES (%s,%s,%s) RETURNING id",
             (title, price, poster_file_id)
         )
         series_id = cur.fetchone()[0]
+    except:
+        return
 
-        created_at = datetime.utcnow()
-        group_key = str(uuid.uuid4())
-        item_ids = []
+    item_ids = []
+    created_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    group_key = str(uuid.uuid4())
+    total_files = len(sess["files"])
 
-        for f in sess["files"]:
-            msg = bot.send_document(
-                STORAGE_CHANNEL,
-                f["dm_file_id"],
-                caption=f["file_name"]
-            )
+    # 🔥 ONE CLEAN MESSAGE
+    progress_msg = bot.send_message(
+        ADMIN_ID,
+        f"⏳ Loading... (0/{total_files})"
+    )
 
-            doc = msg.document or msg.video
+    # ================= SAFE SEND =================
+    def safe_send_document(chat_id, file_id, caption):
 
+        while True:
+            try:
+                return bot.send_document(chat_id, file_id, caption=caption)
+
+            except ApiTelegramException as e:
+
+                if e.error_code == 429:
+                    retry = int(e.result_json["parameters"]["retry_after"])
+
+                    bot.edit_message_text(
+                        f"⏸ Rate limit hit.\nWaiting {retry}s...\n"
+                        f"{len(item_ids)}/{total_files} saved",
+                        ADMIN_ID,
+                        progress_msg.message_id
+                    )
+
+                    time.sleep(retry)
+
+                    bot.edit_message_text(
+                        f"⏳ Loading... ({len(item_ids)}/{total_files})",
+                        ADMIN_ID,
+                        progress_msg.message_id
+                    )
+
+                    continue
+                else:
+                    return None
+
+            except:
+                return None
+
+    # ================= UPLOAD LOOP =================
+    for f in sess["files"]:
+
+        msg = safe_send_document(
+            STORAGE_CHANNEL,
+            f["dm_file_id"],
+            f["file_name"]
+        )
+
+        if not msg:
+            continue
+
+        doc = msg.document or msg.video
+        if not doc:
+            continue
+
+        try:
             cur.execute(
                 """
                 INSERT INTO items
-                (title, price, file_id, file_name, group_key, created_at, channel_msg_id, channel_username)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                (title, price, file_id, file_name, group_key,
+                 created_at, channel_msg_id, channel_username)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING id
                 """,
                 (
                     title,
                     price,
-                    doc.file_id if doc else None,
+                    doc.file_id,
                     f["file_name"],
                     group_key,
                     created_at,
                     msg.message_id,
-                    str(STORAGE_CHANNEL)
+                    STORAGE_CHANNEL
                 )
             )
-            item_ids.append(cur.fetchone()[0])
+            new_id = cur.fetchone()[0]
+            item_ids.append(new_id)
 
-        conn.commit()
+        except:
+            continue
 
-    except Exception as e:
-        conn.rollback()
-        bot.send_message(uid, f"❌ DB error:\n{e}")
-        return
-
-    finally:
-        cur.close()
-        conn.close()
-
-    display_price = f"{price:,}" if has_comma else str(price)
-    ids_str = "_".join(str(i) for i in item_ids)
-
-    kb = InlineKeyboardMarkup()
-    kb.add(
-        InlineKeyboardButton("🗃 Add to cart", callback_data=f"addcartdm:{ids_str}"),
-        InlineKeyboardButton(
-            "💳 Buy now",
-            url=f"https://t.me/{BOT_USERNAME}?start=groupitem_{ids_str}"
+        # Update progress cleanly
+        bot.edit_message_text(
+            f"⏳ Loading... ({len(item_ids)}/{total_files})",
+            ADMIN_ID,
+            progress_msg.message_id
         )
+
+        time.sleep(1.1)
+
+    # ================= COMMIT =================
+    try:
+        conn.commit()
+    except:
+        pass
+
+    cur.close()
+    conn.close()
+
+    # ================= PUBLIC POST =================
+    try:
+        display_price = f"{price:,}" if has_comma else str(price)
+
+        kb = InlineKeyboardMarkup()
+        kb.add(
+            InlineKeyboardButton(
+                "🛒 Add to cart",
+                callback_data=f"addcartdm:{group_key}"
+            ),
+            InlineKeyboardButton(
+                "💳 Buy now",
+                url=f"https://t.me/{BOT_USERNAME}?start=groupitem_{group_key}"
+            )
+        )
+
+        bot.send_photo(
+            CHANNEL,
+            poster_file_id,
+            caption=f"🎬 <b>{title}</b>\n💵Price: ₦{display_price}",
+            parse_mode="HTML",
+            reply_markup=kb
+        )
+
+    except:
+        pass
+
+    # Final message
+    bot.edit_message_text(
+        f"✅ Completed.\n{len(item_ids)}/{total_files} saved successfully.",
+        ADMIN_ID,
+        progress_msg.message_id
     )
 
-    bot.send_photo(
-        CHANNEL,
-        poster_file_id,
-        caption=f"🎬 <b>{title}</b>\n💵Price: ₦{display_price}",
-        parse_mode="HTML",
-        reply_markup=kb
-    )
-
-    bot.send_message(uid, "🎉 Series an adana dukka series lafiya.")
+    bot.send_message(uid, "🎉 Series an adana dukka lafiya.")
     del series_sessions[uid]
+
 
 
 
@@ -3239,7 +3512,9 @@ def all_callbacks(c):
 
  
 
-# =====================
+
+
+    # =====================
     # CHECKOUT
     # =====================
     if data == "checkout":
@@ -3371,9 +3646,26 @@ def all_callbacks(c):
 
         unique_titles = [g["title"] for g in groups.values()]
 
+        # 🔥 GROUP KEY SUPPORT (LIKE ADD FILM BLOCK)
+        group_keys_string = "|".join(groups.keys())
+
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
-        kb.add(InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{order_id}"))
+
+        # 🔥 GROUP-AWARE CALLBACK SUPPORT
+        kb.add(
+            InlineKeyboardButton(
+                "🛒 Add All Again",
+                callback_data=f"addcartmulti:{group_keys_string}"
+            )
+        )
+
+        kb.add(
+            InlineKeyboardButton(
+                "❌ Cancel",
+                callback_data=f"cancel:{order_id}"
+            )
+        )
 
         bot.send_message(
             uid,
@@ -3383,6 +3675,7 @@ def all_callbacks(c):
 {", ".join(unique_titles)}
 
 📦 Films: {film_count}
+🗂 G-orders: {len(groups)}
 💵 Total amount: ₦{total}
 
 👤 <b>Your name is:</b> {user_name}
@@ -3394,22 +3687,24 @@ def all_callbacks(c):
         )
 
         bot.answer_callback_query(c.id)
-        return  
+        return
 
 
+
+    
 
     # =====================
-    # ADD TO CART (SAFE)
+    # ADD TO CART (PRO | IDS + GROUP KEYS)
     # =====================
     if data.startswith("addcartdm:"):
         try:
             raw = data.split(":", 1)[1]
-            item_ids = [i for i in raw.split("_") if i.isdigit()]
+            parts = raw.replace("|", "_").split("_")
         except:
             bot.answer_callback_query(c.id, "❌ Invalid item")
             return
 
-        if not item_ids:
+        if not parts:
             bot.answer_callback_query(c.id, "❌ Invalid item")
             return
 
@@ -3420,31 +3715,66 @@ def all_callbacks(c):
             conn = get_conn()
             cur = conn.cursor()
 
-            for item_id in item_ids:
-                # 🔎 check item exists
-                cur.execute(
-                    "SELECT id FROM items WHERE id=%s",
-                    (item_id,)
-                )
-                if not cur.fetchone():
-                    skipped += 1
-                    continue
+            for part in parts:
 
-                # 🔐 already in cart?
-                cur.execute(
-                    "SELECT 1 FROM cart WHERE user_id=%s AND item_id=%s",
-                    (uid, item_id)
-                )
-                if cur.fetchone():
-                    skipped += 1
-                    continue
+                # =====================
+                # IF NUMERIC → ITEM ID
+                # =====================
+                if part.isdigit():
 
-                # ➕ insert
-                cur.execute(
-                    "INSERT INTO cart (user_id, item_id) VALUES (%s, %s)",
-                    (uid, item_id)
-                )
-                added += 1
+                    cur.execute(
+                        "SELECT id FROM items WHERE id=%s",
+                        (part,)
+                    )
+                    if not cur.fetchone():
+                        skipped += 1
+                        continue
+
+                    cur.execute(
+                        "SELECT 1 FROM cart WHERE user_id=%s AND item_id=%s",
+                        (uid, part)
+                    )
+                    if cur.fetchone():
+                        skipped += 1
+                        continue
+
+                    cur.execute(
+                        "INSERT INTO cart (user_id, item_id) VALUES (%s, %s)",
+                        (uid, part)
+                    )
+                    added += 1
+
+                # =====================
+                # OTHERWISE → GROUP KEY
+                # =====================
+                else:
+
+                    cur.execute(
+                        "SELECT id FROM items WHERE group_key=%s",
+                        (part,)
+                    )
+                    group_items = cur.fetchall()
+
+                    if not group_items:
+                        skipped += 1
+                        continue
+
+                    for row in group_items:
+                        item_id = row[0]
+
+                        cur.execute(
+                            "SELECT 1 FROM cart WHERE user_id=%s AND item_id=%s",
+                            (uid, item_id)
+                        )
+                        if cur.fetchone():
+                            skipped += 1
+                            continue
+
+                        cur.execute(
+                            "INSERT INTO cart (user_id, item_id) VALUES (%s, %s)",
+                            (uid, item_id)
+                        )
+                        added += 1
 
             conn.commit()
 
@@ -3457,21 +3787,20 @@ def all_callbacks(c):
         if added and skipped:
             bot.answer_callback_query(
                 c.id,
-                f"✅ Added {added} | ⚠️ Already added {skipped}"
+                f"✅ Added {added} | ⚠️ Skipped {skipped}"
             )
         elif added:
             bot.answer_callback_query(
                 c.id,
-                "✅ Item added to cart"
+                "✅ Item(s) added to cart"
             )
         else:
             bot.answer_callback_query(
                 c.id,
-                "⚠️ You've already added this item"
+                "⚠️ Already in cart"
             )
 
-        return    
-    
+        return  
 
         
     # =====================

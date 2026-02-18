@@ -695,6 +695,16 @@ def paystack_webhook():
 
     return "OK", 200
 
+# 
+# ========= TELEGRAM WEBHOOK =========
+@app.route("/telegram", methods=["POST"])
+def telegram_webhook():
+    update = telebot.types.Update.de_json(
+        request.stream.read().decode("utf-8")
+    )
+    bot.process_new_updates([update])
+    return "OK", 200
+
 
 import time
 from telebot.apihelper import ApiTelegramException

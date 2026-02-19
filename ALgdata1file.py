@@ -1504,7 +1504,18 @@ def user_buttons(message):
             )
         return
 
+# ======================================
+# SHOW CART (FOR TEXT BUTTON)
+# ======================================
+def show_cart(chat_id, uid):
+    text, kb = build_cart_view(uid)
 
+    bot.send_message(
+        chat_id,
+        text,
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
 # ======================================
 # CLEAR CART
 # ======================================

@@ -3425,13 +3425,6 @@ def all_callbacks(c):
         return
 
     
-@bot.callback_query_handler(func=lambda c: True)
-def all_callbacks(c):
-    try:
-        uid = c.from_user.id
-        data = c.data
-    except:
-        return
 
     # =====================
     # VIEW CART

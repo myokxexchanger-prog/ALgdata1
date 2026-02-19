@@ -1974,9 +1974,11 @@ def handle_forwarded_post(m):
 
 
 # ========== show_cart ==========
-
 # ========== show_cart ==========
 def show_cart(chat_id, user_id):
+
+    user_id = str(user_id)   # 🔐 MUHIMMI
+
     rows = get_cart(user_id)
 
     kb = InlineKeyboardMarkup()
@@ -2009,7 +2011,14 @@ def show_cart(chat_id, user_id):
     grouped = {}
 
     for row in rows:
-        movie_id, title, price, file_id, group_key = row
+
+        # 🔥 SAFE UNPACK
+        if len(row) == 5:
+            movie_id, title, price, file_id, group_key = row
+        else:
+            # idan group_key babu
+            movie_id, title, price, file_id = row
+            group_key = None
 
         key = group_key if group_key else f"single_{movie_id}"
 
@@ -2028,7 +2037,7 @@ def show_cart(chat_id, user_id):
     for key, g in grouped.items():
         ids = g["ids"]
         title = g["title"]
-        price = g["price"]
+        price = int(g["price"] or 0)
 
         total += price
 
@@ -2037,7 +2046,12 @@ def show_cart(chat_id, user_id):
         else:
             text_lines.append(f"• {title} — 📦 Series")
 
+        # 🔥 VERY IMPORTANT (Telegram limit 64 chars)
         ids_str = "_".join(str(i) for i in ids)
+
+        if len(ids_str) > 40:
+            # idan yayi tsawo, amfani da key maimakon ids
+            ids_str = str(key)[:40]
 
         kb.add(
             InlineKeyboardButton(

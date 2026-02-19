@@ -1460,7 +1460,6 @@ def start(message):
     )
 
 # ======================================
-
 # ======================================
 # TEXT BUTTON HANDLER (GLOBAL SAFE)
 # ======================================
@@ -1474,12 +1473,6 @@ def user_buttons(message):
 
     txt = message.text.strip()
     uid = str(message.from_user.id)   # 🔐 STRING FOR POSTGRES
-
-    # DEBUG INFO TO TELEGRAM
-    bot.send_message(
-        message.chat.id,
-        f"🔍 DEBUG:\nText = {txt}\nUserID = {uid}\nChatID = {message.chat.id}"
-    )
 
     # ======= TAIMAKO =======
     if txt == "HELP":
@@ -1501,15 +1494,10 @@ def user_buttons(message):
                 reply_markup=kb
             )
 
-            bot.send_message(
-                message.chat.id,
-                "✅ DEBUG: HELP message sent successfully"
-            )
-
         except Exception as e:
             bot.send_message(
                 message.chat.id,
-                f"❌ DEBUG HELP ERROR:\nType: {type(e).__name__}\nMsg: {str(e)}"
+                f"❌ HELP ERROR:\nType: {type(e).__name__}\nMsg: {str(e)}"
             )
 
         return
@@ -1517,18 +1505,8 @@ def user_buttons(message):
     # ======= CART =======
     if txt == "Check cart":
 
-        bot.send_message(
-            message.chat.id,
-            "🔍 DEBUG: Check cart pressed\nCalling show_cart()..."
-        )
-
         try:
             show_cart(message.chat.id, uid)
-
-            bot.send_message(
-                message.chat.id,
-                "✅ DEBUG: show_cart() executed successfully"
-            )
 
         except Exception as e:
 
@@ -1549,7 +1527,6 @@ def user_buttons(message):
             )
 
         return
-
 
 # ======================================
 # CLEAR CART
@@ -3447,18 +3424,22 @@ def all_callbacks(c):
     except:
         return
 
+    
+@bot.callback_query_handler(func=lambda c: True)
+def all_callbacks(c):
+    try:
+        uid = c.from_user.id
+        data = c.data
+    except:
+        return
+
     # =====================
-    # VIEW CART (TELEGRAM DEBUG)
+    # VIEW CART
     # =====================
     if data == "viewcart":
 
         try:
-            bot.send_message(uid, "🔎 DEBUG: viewcart clicked")
-            bot.send_message(uid, "🔎 DEBUG: Calling build_cart_view()")
-
             text, kb = build_cart_view(uid)
-
-            bot.send_message(uid, "✅ DEBUG: build_cart_view() success")
 
         except Exception as e:
             bot.send_message(
@@ -3470,8 +3451,6 @@ def all_callbacks(c):
             return
 
         try:
-            bot.send_message(uid, "🔎 DEBUG: Sending cart message...")
-
             msg = bot.send_message(
                 uid,
                 text,
@@ -3480,12 +3459,6 @@ def all_callbacks(c):
             )
 
             cart_sessions[uid] = msg.message_id
-
-            bot.send_message(
-                uid,
-                f"✅ DEBUG: Cart message sent.\nMessage ID: <code>{msg.message_id}</code>",
-                parse_mode="HTML"
-            )
 
         except Exception as e:
             bot.send_message(
@@ -3498,6 +3471,7 @@ def all_callbacks(c):
 
         bot.answer_callback_query(c.id)
         return
+
     # ================= FEEDBACK =================
     if data.startswith("feedback:"):
 

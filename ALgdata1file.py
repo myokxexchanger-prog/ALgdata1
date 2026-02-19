@@ -3375,8 +3375,57 @@ def all_callbacks(c):
     except:
         return
 
-  
+    # =====================
+    # VIEW CART (TELEGRAM DEBUG)
+    # =====================
+    if data == "viewcart":
 
+        try:
+            bot.send_message(uid, "🔎 DEBUG: viewcart clicked")
+            bot.send_message(uid, "🔎 DEBUG: Calling build_cart_view()")
+
+            text, kb = build_cart_view(uid)
+
+            bot.send_message(uid, "✅ DEBUG: build_cart_view() success")
+
+        except Exception as e:
+            bot.send_message(
+                uid,
+                f"❌ ERROR inside build_cart_view:\n<code>{str(e)}</code>",
+                parse_mode="HTML"
+            )
+            bot.answer_callback_query(c.id, "❌ build_cart_view error")
+            return
+
+        try:
+            bot.send_message(uid, "🔎 DEBUG: Sending cart message...")
+
+            msg = bot.send_message(
+                uid,
+                text,
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
+
+            cart_sessions[uid] = msg.message_id
+
+            bot.send_message(
+                uid,
+                f"✅ DEBUG: Cart message sent.\nMessage ID: <code>{msg.message_id}</code>",
+                parse_mode="HTML"
+            )
+
+        except Exception as e:
+            bot.send_message(
+                uid,
+                f"❌ ERROR sending cart message:\n<code>{str(e)}</code>",
+                parse_mode="HTML"
+            )
+            bot.answer_callback_query(c.id, "❌ Send message failed")
+            return
+
+        bot.answer_callback_query(c.id)
+        return
     # ================= FEEDBACK =================
     if data.startswith("feedback:"):
 
@@ -3812,17 +3861,7 @@ def all_callbacks(c):
 
         return  
 
-        
-    # =====================
-    # VIEW CART
-    # =====================
-    if data == "viewcart":
-        text, kb = build_cart_view(uid)
-        msg = bot.send_message(uid, text, reply_markup=kb, parse_mode="HTML")
-        cart_sessions[uid] = msg.message_id
-        bot.answer_callback_query(c.id)
-        return
-
+       
 
     # =====================
     # REMOVE FROM CART

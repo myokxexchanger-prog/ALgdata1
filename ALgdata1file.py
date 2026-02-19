@@ -3824,26 +3824,26 @@ def all_callbacks(c):
         return
 
 
-
-
     # =====================
-    # REMOVE FROM CART (SINGLE + GROUP + MIXED)
+    # REMOVE FROM CART
     # =====================
     if data.startswith("removecart:"):
-        raw = data.split("removecart:", 1)[1]
+        raw = data.split(":", 1)[1]
+
+        removed = 0
 
         try:
             conn = get_conn()
             cur = conn.cursor()
 
             parts = [p.strip() for p in raw.split("_") if p.strip()]
-            ids_to_remove = set()
+            ids = set()
 
             for part in parts:
 
-                # ===== IDS =====
+                # ===== ID =====
                 if part.isdigit():
-                    ids_to_remove.add(int(part))
+                    ids.add(int(part))
 
                 # ===== GROUP KEY =====
                 else:
@@ -3853,25 +3853,24 @@ def all_callbacks(c):
                     )
                     rows = cur.fetchall()
                     for r in rows:
-                        ids_to_remove.add(r[0])
+                        ids.add(r[0])
 
-            if not ids_to_remove:
-                bot.answer_callback_query(c.id, "❌ Babu abin cirewa")
-                cur.close()
-                conn.close()
+            if not ids:
+                bot.answer_callback_query(c.id, "❌ No item selected")
                 return
 
-            for item_id in ids_to_remove:
+            for item_id in ids:
                 cur.execute(
                     "DELETE FROM cart WHERE user_id=%s AND item_id=%s",
                     (uid, item_id)
                 )
+                removed += cur.rowcount
 
             conn.commit()
             cur.close()
             conn.close()
 
-        except:
+        except Exception:
             try:
                 conn.rollback()
                 cur.close()
@@ -3882,26 +3881,32 @@ def all_callbacks(c):
             bot.answer_callback_query(c.id, "❌ Remove failed")
             return
 
+        # 🚫 idan babu abin da aka goge
+        if removed == 0:
+            bot.answer_callback_query(
+                c.id,
+                "⚠️ Wannan item din baya cikin cart"
+            )
+            return
+
+        # 🔁 EDIT CART MESSAGE (FIXED)
         text, kb = build_cart_view(uid)
+        try:
+            bot.edit_message_text(
+                chat_id=c.message.chat.id,
+                message_id=c.message.message_id,
+                text=text,
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            print("EDIT FAILED:", e)
 
-        if uid in cart_sessions:
-            try:
-                bot.edit_message_text(
-                    text,
-                    uid,
-                    cart_sessions[uid],
-                    reply_markup=kb,
-                    parse_mode="HTML"
-                )
-            except:
-                pass
-
-        bot.answer_callback_query(c.id, "🗑 An cire")
+        bot.answer_callback_query(c.id, "🗑 Item removed")
         return
 
-
     # =====================
-    # CLEAR CART (DUKKA)
+    # CLEAR CART
     # =====================
     if data == "clearcart":
         try:
@@ -3911,10 +3916,11 @@ def all_callbacks(c):
                 "DELETE FROM cart WHERE user_id=%s",
                 (uid,)
             )
+            removed = cur.rowcount
             conn.commit()
             cur.close()
             conn.close()
-        except:
+        except Exception:
             try:
                 conn.rollback()
                 cur.close()
@@ -3925,21 +3931,27 @@ def all_callbacks(c):
             bot.answer_callback_query(c.id, "❌ Clear failed")
             return
 
-        bot.answer_callback_query(c.id, "🧹 An goge cart")
+        if removed == 0:
+            bot.answer_callback_query(
+                c.id,
+                "⚠️ Cart dinka tuni babu komai"
+            )
+            return
 
-        msg_id = cart_sessions.get(uid)
-        if msg_id:
-            text, kb = build_cart_view(uid)
-            try:
-                bot.edit_message_text(
-                    chat_id=uid,
-                    message_id=msg_id,
-                    text=text,
-                    reply_markup=kb,
-                    parse_mode="HTML"
-                )
-            except:
-                pass
+        # 🔁 EDIT CART MESSAGE (FIXED)
+        text, kb = build_cart_view(uid)
+        try:
+            bot.edit_message_text(
+                chat_id=c.message.chat.id,
+                message_id=c.message.message_id,
+                text=text,
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            print("EDIT FAILED:", e)
+
+        bot.answer_callback_query(c.id, "🧹 Cart cleared")
         return
 
     # =====================

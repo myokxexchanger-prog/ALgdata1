@@ -1459,6 +1459,7 @@ def start(message):
         reply_markup=reply_menu(uid)
     )
 
+# ======================================
 
 # ======================================
 # TEXT BUTTON HANDLER (GLOBAL SAFE)
@@ -1470,11 +1471,19 @@ def start(message):
     )
 )
 def user_buttons(message):
+
     txt = message.text.strip()
     uid = str(message.from_user.id)   # 🔐 STRING FOR POSTGRES
 
+    # DEBUG INFO TO TELEGRAM
+    bot.send_message(
+        message.chat.id,
+        f"🔍 DEBUG:\nText = {txt}\nUserID = {uid}\nChatID = {message.chat.id}"
+    )
+
     # ======= TAIMAKO =======
     if txt == "HELP":
+
         kb = InlineKeyboardMarkup()
 
         if ADMIN_USERNAME:
@@ -1485,37 +1494,63 @@ def user_buttons(message):
                 )
             )
 
-        bot.send_message(
-            message.chat.id,
-            "Need help? Contact the admin.",
-            reply_markup=kb
-        )
+        try:
+            bot.send_message(
+                message.chat.id,
+                "Need help? Contact the admin.",
+                reply_markup=kb
+            )
+
+            bot.send_message(
+                message.chat.id,
+                "✅ DEBUG: HELP message sent successfully"
+            )
+
+        except Exception as e:
+            bot.send_message(
+                message.chat.id,
+                f"❌ DEBUG HELP ERROR:\nType: {type(e).__name__}\nMsg: {str(e)}"
+            )
+
         return
 
     # ======= CART =======
     if txt == "Check cart":
+
+        bot.send_message(
+            message.chat.id,
+            "🔍 DEBUG: Check cart pressed\nCalling show_cart()..."
+        )
+
         try:
             show_cart(message.chat.id, uid)
+
+            bot.send_message(
+                message.chat.id,
+                "✅ DEBUG: show_cart() executed successfully"
+            )
+
         except Exception as e:
-            print("CHECK CART ERROR:", e)
+
+            import traceback
+            error_details = traceback.format_exc()
+
+            bot.send_message(
+                message.chat.id,
+                f"❌ CHECK CART ERROR\n\n"
+                f"Type: {type(e).__name__}\n"
+                f"Message: {str(e)}\n\n"
+                f"Full Trace:\n{error_details[:3000]}"
+            )
+
             bot.send_message(
                 message.chat.id,
                 "⚠️ An samu matsala wajen bude cart."
             )
+
         return
 
-# ======================================
-# SHOW CART (FOR TEXT BUTTON)
-# ======================================
-def show_cart(chat_id, uid):
-    text, kb = build_cart_view(uid)
 
-    bot.send_message(
-        chat_id,
-        text,
-        reply_markup=kb,
-        parse_mode="HTML"
-    )
 # ======================================
 # CLEAR CART
 # ======================================

@@ -1569,15 +1569,18 @@ def clear_cart(uid):
         conn.rollback()
         print("CLEAR CART ERROR:", e)
 
-
 # ======================================
 # GET CART (POSTGRES SAFE)
 # ======================================
 def get_cart(uid):
     uid = str(uid)
+    conn = None
+    cur = None
+
     try:
         conn = get_conn()
         cur = conn.cursor()
+
         cur.execute("""
             SELECT
                 c.item_id,
@@ -1589,14 +1592,19 @@ def get_cart(uid):
             WHERE c.user_id = %s
             ORDER BY c.id DESC
         """, (uid,))
+
         rows = cur.fetchall()
-        cur.close()
         return rows
+
     except Exception as e:
         print("GET_CART ERROR:", e)
         return []
 
-
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 # ======================================
 def get_credits_for_user(user_id):
     return 0, []

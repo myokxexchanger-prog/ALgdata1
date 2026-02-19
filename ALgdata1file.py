@@ -1655,7 +1655,7 @@ def get_cart(uid):
 # End
 
 
-# ========== BUILD CART VIEW (GROUP-AWARE - FIXED) ==========
+# # ========== BUILD CART VIEW (GROUP-AWARE - FIXED & SAFE) ==========
 def build_cart_view(uid):
     uid = str(uid)  # 🔐 MUHIMMI
     rows = get_cart(uid)
@@ -1692,7 +1692,8 @@ def build_cart_view(uid):
             grouped[key] = {
                 "ids": [],
                 "title": title or "🧺 Group / Series Item",
-                "price": int(price or 0)
+                "price": int(price or 0),
+                "group_key": group_key
             }
 
         grouped[key]["ids"].append(movie_id)
@@ -1700,20 +1701,27 @@ def build_cart_view(uid):
     # ===============================
     # DISPLAY ITEMS
     # ===============================
-    for g in grouped.values():
+    for key, g in grouped.items():
         ids = g["ids"]
         title = g["title"]
         price = g["price"]
+        group_key = g["group_key"]
 
         total += price
         lines.append(f"🎬 {title} — ₦{price}")
 
-        ids_str = "_".join(str(i) for i in ids)
+        # ===== SAFE CALLBACK DATA =====
+        if group_key:
+            # use group_key only (SHORT & SAFE)
+            callback_value = group_key
+        else:
+            # single item → use id
+            callback_value = ids[0]
 
         kb.add(
             InlineKeyboardButton(
                 f"❌ Remove: {title}",
-                callback_data=f"removecart:{ids_str}"
+                callback_data=f"removecart:{callback_value}"
             )
         )
 
@@ -1741,7 +1749,6 @@ def build_cart_view(uid):
     )
 
     return text, kb
-
     # ================= USER RESEND SEARCH (USING user_movies) =================
 
 @bot.message_handler(

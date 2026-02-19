@@ -1974,6 +1974,8 @@ def handle_forwarded_post(m):
 
 
 # ========== show_cart ==========
+
+# ========== show_cart ==========
 def show_cart(chat_id, user_id):
     rows = get_cart(user_id)
 
@@ -1995,8 +1997,6 @@ def show_cart(chat_id, user_id):
         )
 
         msg = bot.send_message(chat_id, s, reply_markup=kb)
-
-        # 🔑 MUHIMMI: adana message_id
         cart_sessions[str(user_id)] = msg.message_id
         return
 
@@ -2008,8 +2008,10 @@ def show_cart(chat_id, user_id):
     # ===============================
     grouped = {}
 
-    for movie_id, title, price, file_id, group_key in rows:
-        key = group_key or f"single_{movie_id}"
+    for row in rows:
+        movie_id, title, price, file_id, group_key = row
+
+        key = group_key if group_key else f"single_{movie_id}"
 
         if key not in grouped:
             grouped[key] = {
@@ -2023,7 +2025,7 @@ def show_cart(chat_id, user_id):
     # ===============================
     # DISPLAY ITEMS
     # ===============================
-    for g in grouped.values():
+    for key, g in grouped.items():
         ids = g["ids"]
         title = g["title"]
         price = g["price"]
@@ -2068,12 +2070,7 @@ def show_cart(chat_id, user_id):
         parse_mode="HTML"
     )
 
-    # 🔑 MUHIMMI: adana message_id
     cart_sessions[str(user_id)] = msg.message_id
-
-
-
-
 # ---------- weekly button ----------
 @bot.callback_query_handler(func=lambda c: c.data == "weekly_films")
 def send_weekly_films(call):

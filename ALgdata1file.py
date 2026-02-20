@@ -3610,174 +3610,128 @@ def all_callbacks(c):
 
  
 
+    from psycopg2.extras import RealDictCursor
+    import uuid
 
-
-    # =====================
-    # CHECKOUT
-    # =====================
+    # ==================================================
+    # CHECKOUT (CART)
+    # ==================================================
     if data == "checkout":
 
         rows = get_cart(uid)
         if not rows:
-            bot.answer_callback_query(c.id, "❌ Cart empty")
+            bot.answer_callback_query(c.id, "❌ Cart ɗinka babu komai.")
             return
 
-        order_id = str(uuid.uuid4())
-        user_name = c.from_user.full_name or "User"
-
         groups = {}
-        owned_count = 0
+        total = 0
 
-        for row in rows:
-            try:
-                item_id, title, price, file_id, group_key = row
-            except:
+        for item_id, title, price, file_id, group_key in rows:
+
+            if not file_id:
                 continue
 
-            try:
-                conn = get_conn()
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT 1 FROM user_movies WHERE user_id=%s AND item_id=%s LIMIT 1",
-                    (uid, item_id)
-                )
-                owned = cur.fetchone()
-                cur.close()
-            except:
-                owned = None
-
-            if owned:
-                owned_count += 1
+            p = int(price or 0)
+            if p <= 0:
                 continue
 
-            if not file_id or not price:
-                continue
-
-            key = group_key or f"single_{item_id}"
+            key = group_key if group_key else f"single_{item_id}"
 
             if key not in groups:
                 groups[key] = {
-                    "price": int(price or 0),
-                    "items": [],
-                    "title": title
+                    "price": p,
+                    "items": []
                 }
 
-            groups[key]["items"].append({
-                "item_id": item_id,
-                "file_id": file_id,
-                "price": int(price or 0),
-                "title": title
-            })
+            groups[key]["items"].append((item_id, title, file_id))
 
-        if owned_count > 0 and not groups:
-            kb = InlineKeyboardMarkup()
-            kb.add(InlineKeyboardButton("📽PAID MOVIES", callback_data="my_movies"))
-
-            bot.send_message(
-                uid,
-                "✅ <b>You've already bought these movies.</b>\n\n"
-                "📽 Check Paid Movies\n"
-                "You can download again anytime.",
-                parse_mode="HTML",
-                reply_markup=kb
-            )
-            bot.answer_callback_query(c.id)
+        if not groups:
+            bot.answer_callback_query(c.id, "❌ Babu item mai delivery a cart.")
             return
 
-        total = sum(g["price"] for g in groups.values())
+        # ===== TOTAL PER GROUP =====
+        for g in groups.values():
+            total += g["price"]
+
         if total <= 0:
-            bot.answer_callback_query(c.id, "⚠️ Nothing payable")
+            bot.answer_callback_query(c.id, "❌ Farashi bai dace ba.")
             return
 
-        film_count = sum(len(g["items"]) for g in groups.values())
+        order_id = str(uuid.uuid4())
+
+        conn = None
+        cur = None
 
         try:
             conn = get_conn()
-            cur = conn.cursor()
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+
             cur.execute(
-                "INSERT INTO orders (id, user_id, amount, paid) VALUES (%s,%s,%s,0)",
+                "INSERT INTO orders (id,user_id,amount,paid) VALUES (%s,%s,%s,0)",
                 (order_id, uid, total)
             )
 
             for g in groups.values():
-                for i in g["items"]:
+                for item_id, title, file_id in g["items"]:
                     cur.execute(
                         """
-                        INSERT INTO order_items (order_id, item_id, file_id, price)
+                        INSERT INTO order_items
+                        (order_id,item_id,file_id,price)
                         VALUES (%s,%s,%s,%s)
                         """,
-                        (order_id, i["item_id"], i["file_id"], i["price"])
+                        (order_id, item_id, file_id, g["price"])
                     )
 
             conn.commit()
-            cur.close()
-        except Exception:
-            try:
-                conn.rollback()
-            except:
-                pass
-            bot.answer_callback_query(c.id, "❌ Checkout failed")
-            return
 
-        try:
-            conn = get_conn()
-            cur = conn.cursor()
-            cur.execute("DELETE FROM cart WHERE user_id=%s", (uid,))
-            conn.commit()
-            cur.close()
         except:
-            try:
+            if conn:
                 conn.rollback()
-            except:
-                pass
-
-        pay_url = create_paystack_payment(
-            uid,
-            order_id,
-            total,
-            f"{film_count} film(s)"
-        )
-
-        if not pay_url:
-            bot.answer_callback_query(c.id, "❌ Payment error")
+            bot.answer_callback_query(c.id, "❌ Checkout failed.")
             return
 
-        unique_titles = [g["title"] for g in groups.values()]
+        finally:
+            if cur:
+                cur.close()
+            if conn:
+                conn.close()
 
-        # 🔥 GROUP KEY SUPPORT (LIKE ADD FILM BLOCK)
-        group_keys_string = "|".join(groups.keys())
+        clear_cart(uid)
+
+        pay_url = create_flutterwave_payment(uid, order_id, total, "Cart Order")
+        if not pay_url:
+            return
 
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
+        kb.add(InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{order_id}"))
 
-        # 🔥 GROUP-AWARE CALLBACK SUPPORT
-        kb.add(
-            InlineKeyboardButton(
-                "🛒 Add All Again",
-                callback_data=f"addcartmulti:{group_keys_string}"
-            )
-        )
+        # ================= NEW FORMAT =================
+        first_name = c.from_user.first_name or ""
+        last_name = c.from_user.last_name or ""
+        full_name = f"{first_name} {last_name}".strip()
 
-        kb.add(
-            InlineKeyboardButton(
-                "❌ Cancel",
-                callback_data=f"cancel:{order_id}"
-            )
-        )
+        first_title = None
+        for g in groups.values():
+            if g["items"]:
+                first_title = g["items"][0][1]
+                break
+
+        item_count = sum(len(g["items"]) for g in groups.values())
 
         bot.send_message(
             uid,
-            f"""🧺 <b>Your order created 🎉</b>
+            f"""🧾 <b>Order Created</b>
 
-🎬 <b>You will buy:</b>
-{", ".join(unique_titles)}
+👤 <b>Name:</b> {full_name}
 
-📦 Films: {film_count}
-🗂 G-orders: {len(groups)}
-💵 Total amount: ₦{total}
+🎬 <b>You will buy this film</b>
+🎥 {first_title}
 
-👤 <b>Your name is:</b> {user_name}
-🆔 <b>Order ID:</b>
+📦 Films: {item_count}
+💵 Total: ₦{total}
+
+🆔 Order ID:
 <code>{order_id}</code>
 """,
             parse_mode="HTML",
@@ -3787,9 +3741,6 @@ def all_callbacks(c):
         bot.answer_callback_query(c.id)
         return
 
-
-
-    
 
     # =====================
     # ADD TO CART (PRO | IDS + GROUP KEYS)

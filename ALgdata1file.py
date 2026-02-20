@@ -4775,6 +4775,7 @@ def myorders(message):
         if conn:
             conn.close()
 #s ========== ADMIN FILE UPLOAD (ITEMS ONLY
+
 # ================== SALES REPORT SYSTEM (ITEMS BASED – POSTGRES FIXED) ==================
 
 import threading
@@ -4794,23 +4795,32 @@ def _last_day_of_month(dt):
 
 # ================= ONE REPORT ENGINE =================
 def send_sales_report(since_dt, title, target_chat_id, silent_if_empty=False):
-    # ✅ FIX: fresh DB connection
+
     conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
     try:
         cur.execute(
             """
+            WITH grouped_orders AS (
+                SELECT
+                    o.id AS order_id,
+                    COALESCE(i.group_key, 'single_' || i.id) AS grp,
+                    MIN(i.title) AS title,
+                    MAX(oi.price) AS group_price
+                FROM orders o
+                JOIN order_items oi ON oi.order_id = o.id
+                JOIN items i ON i.id = oi.item_id
+                WHERE o.paid = 1
+                  AND o.created_at >= %s
+                GROUP BY o.id, grp
+            )
             SELECT
-                COALESCE(i.group_key, 'single_' || i.id) AS grp,
-                MIN(i.title) AS title,
-                COUNT(DISTINCT o.id) AS orders,
-                SUM(oi.price) AS total
-            FROM orders o
-            JOIN order_items oi ON oi.order_id = o.id
-            JOIN items i ON i.id = oi.item_id
-            WHERE o.paid = 1
-              AND o.created_at >= %s
+                grp,
+                MIN(title) AS title,
+                COUNT(order_id) AS orders,
+                SUM(group_price) AS total
+            FROM grouped_orders
             GROUP BY grp
             ORDER BY total DESC
             """,

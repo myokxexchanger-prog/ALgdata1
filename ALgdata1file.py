@@ -3414,14 +3414,225 @@ def series_finalize(m):
     del series_sessions[uid]
 
 
-
-
 @bot.callback_query_handler(func=lambda c: True)
-def all_callbacks(c):
+def handle_callback(c):
     try:
         uid = c.from_user.id
-        data = c.data
-    except:
+        data = c.data or ""
+    except Exception as e:
+        try:
+            bot.send_message(ADMIN_ID, f"💥 CALLBACK INIT ERROR:\n{e}")
+        except:
+            pass
+        return
+
+    from psycopg2.extras import RealDictCursor
+    import uuid
+
+    # ==================================================
+    # CHECKOUT (CART)
+    # ==================================================
+    if data == "checkout":
+
+        try:
+            bot.send_message(ADMIN_ID, f"🚀 CHECKOUT STARTED\nUser: {uid}")
+        except:
+            pass
+
+        rows = get_cart(uid)
+
+        if not rows:
+            try:
+                bot.send_message(ADMIN_ID, "⚠️ Cart empty")
+            except:
+                pass
+            bot.answer_callback_query(c.id, "❌ Cart ɗinka babu komai.")
+            return
+
+        groups = {}
+        total = 0
+
+        try:
+            for item_id, title, price, file_id, group_key in rows:
+
+                if not file_id:
+                    continue
+
+                p = int(price or 0)
+                if p <= 0:
+                    continue
+
+                key = group_key if group_key else f"single_{item_id}"
+
+                if key not in groups:
+                    groups[key] = {
+                        "price": p,
+                        "items": []
+                    }
+
+                groups[key]["items"].append((item_id, title, file_id))
+
+        except Exception as e:
+            try:
+                bot.send_message(ADMIN_ID, f"❌ GROUP BUILD ERROR:\n{e}")
+            except:
+                pass
+            return
+
+        if not groups:
+            bot.answer_callback_query(c.id, "❌ Babu item mai delivery a cart.")
+            return
+
+        for g in groups.values():
+            total += g["price"]
+
+        if total <= 0:
+            bot.answer_callback_query(c.id, "❌ Farashi bai dace ba.")
+            return
+
+        order_id = str(uuid.uuid4())
+
+        conn = None
+        cur = None
+
+        try:
+            bot.send_message(ADMIN_ID, "🗄 Connecting DB...")
+
+            conn = get_conn()
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+
+            cur.execute(
+                "INSERT INTO orders (id,user_id,amount,paid) VALUES (%s,%s,%s,0)",
+                (order_id, uid, total)
+            )
+
+            for g in groups.values():
+                for item_id, title, file_id in g["items"]:
+                    cur.execute(
+                        """
+                        INSERT INTO order_items
+                        (order_id,item_id,file_id,price)
+                        VALUES (%s,%s,%s,%s)
+                        """,
+                        (order_id, item_id, file_id, g["price"])
+                    )
+
+            conn.commit()
+
+            bot.send_message(ADMIN_ID, f"✅ ORDER CREATED\nOrder ID: {order_id}\nTotal: {total}")
+
+        except Exception as e:
+            if conn:
+                conn.rollback()
+
+            try:
+                bot.send_message(ADMIN_ID, f"❌ DB ERROR:\n{e}")
+            except:
+                pass
+
+            bot.answer_callback_query(c.id, "❌ Checkout failed.")
+            return
+
+        finally:
+            try:
+                if cur:
+                    cur.close()
+                if conn:
+                    conn.close()
+            except:
+                pass
+
+        try:
+            clear_cart(uid)
+            bot.send_message(ADMIN_ID, "🧹 Cart cleared")
+        except Exception as e:
+            try:
+                bot.send_message(ADMIN_ID, f"❌ CLEAR CART ERROR:\n{e}")
+            except:
+                pass
+
+        try:
+            bot.send_message(ADMIN_ID, "🌐 Creating payment link...")
+            pay_url = create_flutterwave_payment(uid, order_id, total, "Cart Order")
+        except Exception as e:
+            try:
+                bot.send_message(ADMIN_ID, f"❌ PAYMENT LINK ERROR:\n{e}")
+            except:
+                pass
+            return
+
+        if not pay_url:
+            try:
+                bot.send_message(ADMIN_ID, "❌ Payment link returned None")
+            except:
+                pass
+            return
+
+        try:
+            kb = InlineKeyboardMarkup()
+            kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
+            kb.add(InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{order_id}"))
+        except Exception as e:
+            try:
+                bot.send_message(ADMIN_ID, f"❌ BUTTON BUILD ERROR:\n{e}")
+            except:
+                pass
+            return
+
+        first_name = c.from_user.first_name or ""
+        last_name = c.from_user.last_name or ""
+        full_name = f"{first_name} {last_name}".strip()
+
+        first_title = None
+        for g in groups.values():
+            if g["items"]:
+                first_title = g["items"][0][1]
+                break
+
+        item_count = sum(len(g["items"]) for g in groups.values())
+
+        try:
+            bot.send_message(
+                uid,
+                f"""🧾 <b>Order Created</b>
+
+👤 <b>Name:</b> {full_name}
+
+🎬 <b>You will buy this film</b>
+🎥 {first_title}
+
+📦 Films: {item_count}
+💵 Total: ₦{total}
+
+🆔 Order ID:
+<code>{order_id}</code>
+""",
+                parse_mode="HTML",
+                reply_markup=kb
+            )
+
+            bot.send_message(ADMIN_ID, "📨 Order message sent to user successfully")
+
+        except Exception as e:
+            try:
+                bot.send_message(ADMIN_ID, f"❌ TELEGRAM SEND ERROR:\n{e}")
+            except:
+                pass
+            return
+
+        try:
+            bot.answer_callback_query(c.id)
+        except Exception as e:
+            try:
+                bot.send_message(ADMIN_ID, f"❌ CALLBACK ANSWER ERROR:\n{e}")
+            except:
+                pass
+
+        try:
+            bot.send_message(ADMIN_ID, "🎉 CHECKOUT COMPLETED SUCCESSFULLY")
+        except:
+            pass
+
         return
 
     

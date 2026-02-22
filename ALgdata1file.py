@@ -2067,7 +2067,9 @@ def show_cart(chat_id, user_id):
 def send_weekly_films(call):
     return send_weekly_list(call.message)
 
-# ---------- My Orders (UNPAID with per-item REMOVE | FIXED COUNT ONLY) ----------
+
+
+# ---------- My Orders (UNPAID with per-item REMOVE | OWNERSHIP SAFE) ----------
 ORDERS_PER_PAGE = 5
 
 def build_unpaid_orders_view(uid, page):
@@ -2076,7 +2078,7 @@ def build_unpaid_orders_view(uid, page):
     conn = get_conn()
     cur = conn.cursor()
 
-    # ===== COUNT ORDERS (FIXED: IGNORE EMPTY / DELETED ORDERS) =====
+    # ===== COUNT ORDERS (IGNORE EMPTY + OWNED ITEMS) =====
     cur.execute(
         """
         SELECT COUNT(DISTINCT o.id)
@@ -2084,31 +2086,71 @@ def build_unpaid_orders_view(uid, page):
         WHERE o.user_id=%s
           AND o.paid=0
           AND EXISTS (
-              SELECT 1
-              FROM order_items oi
+              SELECT 1 FROM order_items oi
               WHERE oi.order_id = o.id
+                AND NOT EXISTS (
+                    SELECT 1 FROM user_movies um
+                    WHERE um.user_id=%s
+                      AND um.item_id=oi.item_id
+                )
           )
         """,
-        (uid,)
+        (uid, uid)
     )
     total = cur.fetchone()[0]
 
+    # ===== IF NO UNPAID LEFT =====
     if total == 0:
+
+        # Check if user owns something instead
+        cur.execute(
+            """
+            SELECT 1
+            FROM orders o
+            JOIN order_items oi ON oi.order_id=o.id
+            WHERE o.user_id=%s AND o.paid=0
+              AND EXISTS (
+                  SELECT 1 FROM user_movies um
+                  WHERE um.user_id=%s
+                    AND um.item_id=oi.item_id
+              )
+            LIMIT 1
+            """,
+            (uid, uid)
+        )
+
+        owned_exists = cur.fetchone()
+
         cur.close()
         conn.close()
+
         kb = InlineKeyboardMarkup()
+
+        if owned_exists:
+            kb.add(
+                InlineKeyboardButton(
+                    "🎬 MY MOVIES",
+                    callback_data="my_movies"
+                )
+            )
+            return (
+                "✅ <b>Ka riga ka taba siyan wannan fim.</b>\n\nZaka iya duba shi ka sake karba in kana bukata anan👇👇",
+                kb
+            )
+
         kb.add(
             InlineKeyboardButton(
                 "🏘 Our Channel",
                 url=f"https://t.me/{CHANNEL.lstrip('@')}"
             )
         )
+
         return (
             "📩<b>There are no unpaid orders.\n\nGo to our channel to buy Films</b>",
             kb
         )
 
-    # ===== TOTAL BALANCE (SOURCE OF TRUTH) =====
+    # ===== TOTAL BALANCE (IGNORE OWNED ITEMS) =====
     cur.execute(
         """
         SELECT COALESCE(SUM(o.amount), 0)
@@ -2116,16 +2158,20 @@ def build_unpaid_orders_view(uid, page):
         WHERE o.user_id=%s
           AND o.paid=0
           AND EXISTS (
-              SELECT 1
-              FROM order_items oi
-              WHERE oi.order_id = o.id
+              SELECT 1 FROM order_items oi
+              WHERE oi.order_id=o.id
+                AND NOT EXISTS (
+                    SELECT 1 FROM user_movies um
+                    WHERE um.user_id=%s
+                      AND um.item_id=oi.item_id
+                )
           )
         """,
-        (uid,)
+        (uid, uid)
     )
     total_amount = cur.fetchone()[0]
 
-    # ===== FETCH ORDERS (UNCHANGED) =====
+    # ===== FETCH ORDERS (OWNERSHIP SAFE) =====
     cur.execute(
         """
         SELECT
@@ -2139,12 +2185,18 @@ def build_unpaid_orders_view(uid, page):
         FROM orders o
         JOIN order_items oi ON oi.order_id = o.id
         LEFT JOIN items i ON i.id = oi.item_id
-        WHERE o.user_id=%s AND o.paid=0
+        WHERE o.user_id=%s
+          AND o.paid=0
+          AND NOT EXISTS (
+              SELECT 1 FROM user_movies um
+              WHERE um.user_id=%s
+                AND um.item_id=oi.item_id
+          )
         GROUP BY o.id
         ORDER BY o.created_at DESC
         LIMIT %s OFFSET %s
         """,
-        (uid, ORDERS_PER_PAGE, offset)
+        (uid, uid, ORDERS_PER_PAGE, offset)
     )
     rows = cur.fetchall()
 

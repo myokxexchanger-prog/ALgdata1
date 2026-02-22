@@ -2709,19 +2709,16 @@ import uuid
 import traceback
 from psycopg2.extras import RealDictCursor
 
-# ========= PAY ALL UNPAID (SAFE | GROUP-AWARE | DEBUG VERSION) =========
+# ========= PAY ALL UNPAID (SAFE | GROUP-AWARE | CLEAN VERSION) =========
 @bot.callback_query_handler(func=lambda c: c.data == "payall:")
 def pay_all_unpaid(call):
     uid = call.from_user.id
     user_name = call.from_user.first_name or "Customer"
     bot.answer_callback_query(call.id)
 
-    bot.send_message(ADMIN_ID, f"🚀 PAYALL STARTED\nUser: {uid}")
-
     try:
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        bot.send_message(ADMIN_ID, "✅ DB Connected")
 
         # ==================================================
         # 1️⃣ FETCH ALL UNPAID ORDER ITEMS
@@ -2745,8 +2742,6 @@ def pay_all_unpaid(call):
         )
         rows = cur.fetchall()
 
-        bot.send_message(ADMIN_ID, f"📦 Unpaid rows fetched: {len(rows)}")
-
         if not rows:
             bot.send_message(uid, "❌ No unpaid orders found.")
             return
@@ -2755,23 +2750,34 @@ def pay_all_unpaid(call):
         # 2️⃣ REMOVE OWNED ITEMS
         # ==================================================
         all_item_ids = list({r["item_id"] for r in rows})
-        bot.send_message(ADMIN_ID, f"🎯 Unique items: {len(all_item_ids)}")
 
-        placeholder_count = len(all_item_ids)
-        bot.send_message(ADMIN_ID, f"🔢 SQL placeholders count: {placeholder_count}")
+        if all_item_ids:
+            cur.execute(
+                f"""
+                SELECT item_id
+                FROM user_movies
+                WHERE user_id=%s
+                  AND item_id IN ({",".join(["%s"] * len(all_item_ids))})
+                """,
+                (uid, *all_item_ids)
+            )
+            owned_ids = {r["item_id"] for r in cur.fetchall()}
+        else:
+            owned_ids = set()
 
-        cur.execute(
-            f"""
-            SELECT item_id
-            FROM user_movies
-            WHERE user_id=%s
-              AND item_id IN ({",".join(["%s"] * placeholder_count)})
-            """,
-            (uid, *all_item_ids)
-        )
+        # idan user ya riga ya mallaki wasu fim
+        if owned_ids:
+            kb_owned = InlineKeyboardMarkup()
+            kb_owned.add(
+                InlineKeyboardButton("📽 PAID MOVIES", callback_data="my_movies")
+            )
 
-        owned_ids = {r["item_id"] for r in cur.fetchall()}
-        bot.send_message(ADMIN_ID, f"🎬 Owned items found: {len(owned_ids)}")
+            bot.send_message(
+                uid,
+                "You have already purchased some of these movies.\n"
+                "You can access them anytime from your paid movies section below.",
+                reply_markup=kb_owned
+            )
 
         items = [
             r for r in rows
@@ -2779,8 +2785,6 @@ def pay_all_unpaid(call):
             and int(r["price"] or 0) > 0
             and r["item_id"] not in owned_ids
         ]
-
-        bot.send_message(ADMIN_ID, f"🧹 Payable items left: {len(items)}")
 
         if not items:
             bot.send_message(uid, "❌ No payable items.")
@@ -2803,10 +2807,7 @@ def pay_all_unpaid(call):
                 }
             groups[key]["items"].append(i)
 
-        bot.send_message(ADMIN_ID, f"🗂 Groups created: {len(groups)}")
-
         total_amount = sum(g["price"] for g in groups.values())
-        bot.send_message(ADMIN_ID, f"💰 Total amount: {total_amount}")
 
         if total_amount <= 0:
             bot.send_message(uid, "❌ Invalid total amount.")
@@ -2816,7 +2817,6 @@ def pay_all_unpaid(call):
         # 4️⃣ CREATE COLLECTOR ORDER
         # ==================================================
         order_id = str(uuid.uuid4())
-        bot.send_message(ADMIN_ID, f"🆔 New order id: {order_id}")
 
         cur.execute(
             """
@@ -2825,8 +2825,6 @@ def pay_all_unpaid(call):
             """,
             (order_id, uid, total_amount)
         )
-
-        inserted_items = 0
 
         for g in groups.values():
             for i in g["items"]:
@@ -2838,17 +2836,13 @@ def pay_all_unpaid(call):
                     """,
                     (order_id, i["item_id"], i["file_id"], g["price"])
                 )
-                inserted_items += 1
 
         conn.commit()
-        bot.send_message(ADMIN_ID, f"✅ Order committed. Items inserted: {inserted_items}")
 
         # ==================================================
         # 5️⃣ DELETE OLD ORDERS
         # ==================================================
         if old_order_ids:
-            bot.send_message(ADMIN_ID, f"🗑 Deleting old orders: {len(old_order_ids)}")
-
             cur.execute(
                 f"""
                 DELETE FROM order_items
@@ -2866,13 +2860,10 @@ def pay_all_unpaid(call):
             )
 
             conn.commit()
-            bot.send_message(ADMIN_ID, "✅ Old orders deleted")
 
         # ==================================================
         # 6️⃣ PAYSTACK
         # ==================================================
-        bot.send_message(ADMIN_ID, "🌐 Creating Paystack payment...")
-
         pay_url = create_paystack_payment(
             uid,
             order_id,
@@ -2880,10 +2871,7 @@ def pay_all_unpaid(call):
             "Pay All Unpaid Orders"
         )
 
-        bot.send_message(ADMIN_ID, f"🔗 Paystack URL: {pay_url}")
-
         if not pay_url:
-            bot.send_message(ADMIN_ID, "❌ Paystack returned None")
             return
 
         # ==================================================
@@ -2901,18 +2889,6 @@ def pay_all_unpaid(call):
 
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
-
-        group_keys_string = "|".join(groups.keys())
-        item_ids_string = "|".join(str(i) for i in item_ids)
-
-        bot.send_message(ADMIN_ID, f"📏 Callback length: {len(group_keys_string + item_ids_string)}")
-
-        kb.add(
-            InlineKeyboardButton(
-                "🛒 Add All to Cart",
-                callback_data=f"addcartmulti:{group_keys_string}:{item_ids_string}"
-            )
-        )
 
         kb.add(
             InlineKeyboardButton(
@@ -2942,11 +2918,8 @@ def pay_all_unpaid(call):
             reply_markup=kb
         )
 
-        bot.send_message(ADMIN_ID, "🎉 PAYALL SUCCESS")
-
-    except Exception as e:
-        error_text = traceback.format_exc()
-        bot.send_message(ADMIN_ID, f"🔥 ERROR:\n{error_text}")
+    except Exception:
+        pass
 
     finally:
         try:
@@ -2954,6 +2927,8 @@ def pay_all_unpaid(call):
             conn.close()
         except:
             pass
+
+
 
 
 import uuid

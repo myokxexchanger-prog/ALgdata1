@@ -3739,6 +3739,7 @@ def handle_callback(c):
 
         added = 0
         skipped = 0
+        owned = 0   # ✅ NEW
 
         try:
             conn = get_conn()
@@ -3759,7 +3760,7 @@ def handle_callback(c):
                         skipped += 1
                         continue
 
-                    # ✅ NEW: CHECK IF USER ALREADY OWNS ITEM
+                    # ✅ CHECK IF USER ALREADY OWNS ITEM
                     cur.execute(
                         """
                         SELECT 1 FROM order_items oi
@@ -3769,7 +3770,7 @@ def handle_callback(c):
                         (uid, part)
                     )
                     if cur.fetchone():
-                        skipped += 1
+                        owned += 1
                         continue
 
                     cur.execute(
@@ -3804,7 +3805,7 @@ def handle_callback(c):
                     for row in group_items:
                         item_id = row[0]
 
-                        # ✅ NEW: CHECK IF USER ALREADY OWNS ITEM
+                        # ✅ CHECK IF USER ALREADY OWNS ITEM
                         cur.execute(
                             """
                             SELECT 1 FROM order_items oi
@@ -3814,7 +3815,7 @@ def handle_callback(c):
                             (uid, item_id)
                         )
                         if cur.fetchone():
-                            skipped += 1
+                            owned += 1
                             continue
 
                         cur.execute(
@@ -3839,7 +3840,12 @@ def handle_callback(c):
             return
 
         # ===== USER FEEDBACK =====
-        if added and skipped:
+        if owned:
+            bot.answer_callback_query(
+                c.id,
+                "🎬 You already purchased this film."
+            )
+        elif added and skipped:
             bot.answer_callback_query(
                 c.id,
                 f"✅ Added {added} | ⚠️ Skipped {skipped}"
@@ -3857,6 +3863,8 @@ def handle_callback(c):
 
         return
 
+
+    
     
        
 

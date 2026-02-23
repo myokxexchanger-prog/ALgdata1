@@ -2232,6 +2232,105 @@ def build_unpaid_orders_view(uid, page):
     conn.close()
     return text, kb
 
+def build_paid_orders_view(uid, page):
+    offset = page * ORDERS_PER_PAGE
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT COUNT(*) FROM orders WHERE user_id=%s AND paid=1",
+        (uid,)
+    )
+    total = cur.fetchone()[0]
+
+    if total == 0:
+        cur.close()
+        conn.close()
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("🎥 PAID MOVIES", callback_data="my_movies"))
+        kb.add(
+            InlineKeyboardButton(
+                "🏘 Our Channel",
+                url=f"https://t.me/{CHANNEL.lstrip('@')}"
+            )
+        )
+        return "📩 <b>There are no paid orders.\n\n Go to our Channel to buy films</b>", kb
+
+    cur.execute(
+        """
+        SELECT
+            o.id,
+            COUNT(oi.item_id) AS items_count,
+            MAX(i.title) AS title,
+            COUNT(DISTINCT i.group_key) AS gk_count
+        FROM orders o
+        JOIN order_items oi ON oi.order_id = o.id
+        LEFT JOIN items i ON i.id = oi.item_id
+        WHERE o.user_id=%s AND o.paid=1
+        GROUP BY o.id
+        ORDER BY o.created_at DESC
+        LIMIT %s OFFSET %s
+        """,
+        (uid, ORDERS_PER_PAGE, offset)
+    )
+    rows = cur.fetchall()
+
+    text = f"📩 <b>Your paid orders ({total})</b>\n\n"
+    kb = InlineKeyboardMarkup()
+
+    for oid, count, title, gk_count in rows:
+        cur.execute(
+            "SELECT COUNT(*) FROM user_movies WHERE order_id=%s AND user_id=%s",
+            (oid, uid)
+        )
+        delivered = cur.fetchone()[0]
+
+        remain = count - delivered
+
+        if count > 1 and gk_count == 1:
+            name = f"{title} (EP {count})"
+        else:
+            name = title or f"Group order ({count} items)"
+
+        short = name[:27] + "…" if len(name) > 27 else name
+
+        if remain > 0:
+            text += f"• {short} — ✅ Paid (Remaining: {remain})\n"
+        else:
+            text += f"• {short} — ✅ Arrived\n"
+
+    nav = []
+    if page > 0:
+        nav.append(
+            InlineKeyboardButton(
+                "◀️ Back",
+                callback_data=f"paid_prev:{page-1}"
+            )
+        )
+    if offset + ORDERS_PER_PAGE < total:
+        nav.append(
+            InlineKeyboardButton(
+                "Next ▶️",
+                callback_data=f"paid_next:{page+1}"
+            )
+        )
+    if nav:
+        kb.row(*nav)
+
+    kb.add(InlineKeyboardButton("🎥PAID MOVIES", callback_data="my_movies"))
+    kb.add(
+        InlineKeyboardButton(
+            "🏘Our Channel",
+            url=f"https://t.me/{CHANNEL.lstrip('@')}"
+        )
+    )
+
+    cur.close()
+    conn.close()
+    return text, kb
+
+
 
 # ---------- START handler (VIEW) ----------
 @bot.message_handler(commands=['start'])

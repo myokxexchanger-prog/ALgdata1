@@ -3722,138 +3722,6 @@ def handle_callback(c):
 
  
 
-    from psycopg2.extras import RealDictCursor
-    import uuid
-
-    # ==================================================
-    # CHECKOUT (CART)
-    # ==================================================
-    if data == "checkout":
-
-        rows = get_cart(uid)
-        if not rows:
-            bot.answer_callback_query(c.id, "❌ Cart ɗinka babu komai.")
-            return
-
-        groups = {}
-        total = 0
-
-        for item_id, title, price, file_id, group_key in rows:
-
-            if not file_id:
-                continue
-
-            p = int(price or 0)
-            if p <= 0:
-                continue
-
-            key = group_key if group_key else f"single_{item_id}"
-
-            if key not in groups:
-                groups[key] = {
-                    "price": p,
-                    "items": []
-                }
-
-            groups[key]["items"].append((item_id, title, file_id))
-
-        if not groups:
-            bot.answer_callback_query(c.id, "❌ Babu item mai delivery a cart.")
-            return
-
-        # ===== TOTAL PER GROUP =====
-        for g in groups.values():
-            total += g["price"]
-
-        if total <= 0:
-            bot.answer_callback_query(c.id, "❌ Farashi bai dace ba.")
-            return
-
-        order_id = str(uuid.uuid4())
-
-        conn = None
-        cur = None
-
-        try:
-            conn = get_conn()
-            cur = conn.cursor(cursor_factory=RealDictCursor)
-
-            cur.execute(
-                "INSERT INTO orders (id,user_id,amount,paid) VALUES (%s,%s,%s,0)",
-                (order_id, uid, total)
-            )
-
-            for g in groups.values():
-                for item_id, title, file_id in g["items"]:
-                    cur.execute(
-                        """
-                        INSERT INTO order_items
-                        (order_id,item_id,file_id,price)
-                        VALUES (%s,%s,%s,%s)
-                        """,
-                        (order_id, item_id, file_id, g["price"])
-                    )
-
-            conn.commit()
-
-        except:
-            if conn:
-                conn.rollback()
-            bot.answer_callback_query(c.id, "❌ Checkout failed.")
-            return
-
-        finally:
-            if cur:
-                cur.close()
-            if conn:
-                conn.close()
-
-        clear_cart(uid)
-
-        pay_url = create_flutterwave_payment(uid, order_id, total, "Cart Order")
-        if not pay_url:
-            return
-
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
-        kb.add(InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{order_id}"))
-
-        # ================= NEW FORMAT =================
-        first_name = c.from_user.first_name or ""
-        last_name = c.from_user.last_name or ""
-        full_name = f"{first_name} {last_name}".strip()
-
-        first_title = None
-        for g in groups.values():
-            if g["items"]:
-                first_title = g["items"][0][1]
-                break
-
-        item_count = sum(len(g["items"]) for g in groups.values())
-
-        bot.send_message(
-            uid,
-            f"""🧾 <b>Order Created</b>
-
-👤 <b>Name:</b> {full_name}
-
-🎬 <b>You will buy this film</b>
-🎥 {first_title}
-
-📦 Films: {item_count}
-💵 Total: ₦{total}
-
-🆔 Order ID:
-<code>{order_id}</code>
-""",
-            parse_mode="HTML",
-            reply_markup=kb
-        )
-
-        bot.answer_callback_query(c.id)
-        return
-
-
     # =====================
     # ADD TO CART (PRO | IDS + GROUP KEYS)
     # =====================
@@ -3891,6 +3759,19 @@ def handle_callback(c):
                         skipped += 1
                         continue
 
+                    # ✅ NEW: CHECK IF USER ALREADY OWNS ITEM
+                    cur.execute(
+                        """
+                        SELECT 1 FROM order_items oi
+                        JOIN orders o ON o.id = oi.order_id
+                        WHERE o.user_id=%s AND oi.item_id=%s AND o.paid=1
+                        """,
+                        (uid, part)
+                    )
+                    if cur.fetchone():
+                        skipped += 1
+                        continue
+
                     cur.execute(
                         "SELECT 1 FROM cart WHERE user_id=%s AND item_id=%s",
                         (uid, part)
@@ -3922,6 +3803,19 @@ def handle_callback(c):
 
                     for row in group_items:
                         item_id = row[0]
+
+                        # ✅ NEW: CHECK IF USER ALREADY OWNS ITEM
+                        cur.execute(
+                            """
+                            SELECT 1 FROM order_items oi
+                            JOIN orders o ON o.id = oi.order_id
+                            WHERE o.user_id=%s AND oi.item_id=%s AND o.paid=1
+                            """,
+                            (uid, item_id)
+                        )
+                        if cur.fetchone():
+                            skipped += 1
+                            continue
 
                         cur.execute(
                             "SELECT 1 FROM cart WHERE user_id=%s AND item_id=%s",
@@ -3961,8 +3855,9 @@ def handle_callback(c):
                 "⚠️ Already in cart"
             )
 
-        return  
+        return
 
+    
        
 
     # =====================

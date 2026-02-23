@@ -1800,11 +1800,10 @@ def ignore_unexpected_text(m):
     )
 # ======================================================
 # ACTIVE BUYERS (ADMIN ONLY | PAGINATION | EDIT MODE)
-# ======================================================
 
 from psycopg2.extras import RealDictCursor
 
-# ================== CANCEL ORDER (POSTGRES | SAFE | CLEAN) ==================
+# ================== CANCEL ORDER (POSTGRES | SAFE | EDIT MESSAGE) ==================
 @bot.callback_query_handler(func=lambda c: c.data and c.data.startswith("cancel:"))
 def cancel_order_handler(c):
     uid = c.from_user.id
@@ -1837,11 +1836,16 @@ def cancel_order_handler(c):
         return
 
     if not order:
-        bot.send_message(
-            uid,
-            "❌ <b>Ba a sami order ba ko kuma an riga an biya shi.</b>",
-            parse_mode="HTML"
-        )
+        try:
+            bot.edit_message_text(
+                "❌ <b>Ba a sami order ba ko kuma an riga an biya shi.</b>",
+                chat_id=uid,
+                message_id=c.message.message_id,
+                parse_mode="HTML"
+            )
+        except:
+            pass
+
         cur.close()
         conn.close()
         return
@@ -1866,14 +1870,21 @@ def cancel_order_handler(c):
         conn.close()
         return
 
-    bot.send_message(
-        uid,
-        "❌ <b>An soke wannan order ɗin.</b>",
-        parse_mode="HTML"
-    )
+    # ✏️ EDIT ORIGINAL MESSAGE INSTEAD OF SENDING NEW ONE
+    try:
+        bot.edit_message_text(
+            "❌ <b>An soke wannan order ɗin.</b>",
+            chat_id=uid,
+            message_id=c.message.message_id,
+            parse_mode="HTML"
+        )
+    except:
+        pass
 
     cur.close()
     conn.close()
+
+
 
 
 # ================== END RUKUNI B ==================

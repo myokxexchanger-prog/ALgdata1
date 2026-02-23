@@ -3316,11 +3316,8 @@ def handle_callback(c):
     try:
         uid = c.from_user.id
         data = c.data or ""
-    except Exception as e:
-        try:
-            bot.send_message(ADMIN_ID, f"💥 CALLBACK INIT ERROR:\n{e}")
-        except:
-            pass
+        user_name = c.from_user.first_name or "Customer"
+    except:
         return
 
     from psycopg2.extras import RealDictCursor
@@ -3331,55 +3328,98 @@ def handle_callback(c):
     # ==================================================
     if data == "checkout":
 
-        try:
-            bot.send_message(ADMIN_ID, f"🚀 CHECKOUT STARTED\nUser: {uid}")
-        except:
-            pass
-
         rows = get_cart(uid)
 
         if not rows:
-            try:
-                bot.send_message(ADMIN_ID, "⚠️ Cart empty")
-            except:
-                pass
             bot.answer_callback_query(c.id, "❌ Cart ɗinka babu komai.")
             return
 
         groups = {}
         total = 0
 
-        try:
-            for item_id, title, price, file_id, group_key in rows:
+        for item_id, title, price, file_id, group_key in rows:
 
-                if not file_id:
-                    continue
+            if not file_id:
+                continue
 
-                p = int(price or 0)
-                if p <= 0:
-                    continue
+            p = int(price or 0)
+            if p <= 0:
+                continue
 
-                key = group_key if group_key else f"single_{item_id}"
+            key = group_key if group_key else f"single_{item_id}"
 
-                if key not in groups:
-                    groups[key] = {
-                        "price": p,
-                        "items": []
-                    }
+            if key not in groups:
+                groups[key] = {
+                    "price": p,
+                    "items": []
+                }
 
-                groups[key]["items"].append((item_id, title, file_id))
-
-        except Exception as e:
-            try:
-                bot.send_message(ADMIN_ID, f"❌ GROUP BUILD ERROR:\n{e}")
-            except:
-                pass
-            return
+            groups[key]["items"].append((item_id, title, file_id))
 
         if not groups:
             bot.answer_callback_query(c.id, "❌ Babu item mai delivery a cart.")
             return
 
+        # ==================================================
+        # REMOVE OWNED MOVIES
+        # ==================================================
+        conn = None
+        cur = None
+
+        try:
+            conn = get_conn()
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+
+            all_ids = []
+            for g in groups.values():
+                for item_id, _, _ in g["items"]:
+                    all_ids.append(item_id)
+
+            if all_ids:
+                cur.execute(
+                    f"""
+                    SELECT item_id FROM user_movies
+                    WHERE user_id=%s
+                    AND item_id IN ({",".join(["%s"]*len(all_ids))})
+                    """,
+                    (uid, *all_ids)
+                )
+
+                owned_ids = {r["item_id"] for r in cur.fetchall()}
+            else:
+                owned_ids = set()
+
+            if owned_ids:
+                kb_owned = InlineKeyboardMarkup()
+                kb_owned.add(
+                    InlineKeyboardButton(
+                        "📽 PAID MOVIES",
+                        callback_data="my_movies"
+                    )
+                )
+
+                bot.send_message(
+                    uid,
+                    "You have already purchased this movie.\n\nYou can view or download it again below 👇",
+                    reply_markup=kb_owned
+                )
+                return
+
+        except:
+            return
+
+        finally:
+            try:
+                if cur:
+                    cur.close()
+                if conn:
+                    conn.close()
+            except:
+                pass
+
+        # ==================================================
+        # CALCULATE TOTAL
+        # ==================================================
         for g in groups.values():
             total += g["price"]
 
@@ -3389,12 +3429,13 @@ def handle_callback(c):
 
         order_id = str(uuid.uuid4())
 
+        # ==================================================
+        # CREATE ORDER
+        # ==================================================
         conn = None
         cur = None
 
         try:
-            bot.send_message(ADMIN_ID, "🗄 Connecting DB...")
-
             conn = get_conn()
             cur = conn.cursor(cursor_factory=RealDictCursor)
 
@@ -3416,18 +3457,9 @@ def handle_callback(c):
 
             conn.commit()
 
-            bot.send_message(ADMIN_ID, f"✅ ORDER CREATED\nOrder ID: {order_id}\nTotal: {total}")
-
-        except Exception as e:
+        except:
             if conn:
                 conn.rollback()
-
-            try:
-                bot.send_message(ADMIN_ID, f"❌ DB ERROR:\n{e}")
-            except:
-                pass
-
-            bot.answer_callback_query(c.id, "❌ Checkout failed.")
             return
 
         finally:
@@ -3439,100 +3471,72 @@ def handle_callback(c):
             except:
                 pass
 
+        # ==================================================
+        # CLEAR CART
+        # ==================================================
         try:
             clear_cart(uid)
-            bot.send_message(ADMIN_ID, "🧹 Cart cleared")
-        except Exception as e:
-            try:
-                bot.send_message(ADMIN_ID, f"❌ CLEAR CART ERROR:\n{e}")
-            except:
-                pass
-
-        try:
-            bot.send_message(ADMIN_ID, "🌐 Creating payment link...")
-            pay_url = create_flutterwave_payment(uid, order_id, total, "Cart Order")
-        except Exception as e:
-            try:
-                bot.send_message(ADMIN_ID, f"❌ PAYMENT LINK ERROR:\n{e}")
-            except:
-                pass
-            return
-
-        if not pay_url:
-            try:
-                bot.send_message(ADMIN_ID, "❌ Payment link returned None")
-            except:
-                pass
-            return
-
-        try:
-            kb = InlineKeyboardMarkup()
-            kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
-            kb.add(InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{order_id}"))
-        except Exception as e:
-            try:
-                bot.send_message(ADMIN_ID, f"❌ BUTTON BUILD ERROR:\n{e}")
-            except:
-                pass
-            return
-
-        first_name = c.from_user.first_name or ""
-        last_name = c.from_user.last_name or ""
-        full_name = f"{first_name} {last_name}".strip()
-
-        first_title = None
-        for g in groups.values():
-            if g["items"]:
-                first_title = g["items"][0][1]
-                break
-
-        item_count = sum(len(g["items"]) for g in groups.values())
-
-        try:
-            bot.send_message(
-                uid,
-                f"""🧾 <b>Order Created</b>
-
-👤 <b>Name:</b> {full_name}
-
-🎬 <b>You will buy this film</b>
-🎥 {first_title}
-
-📦 Films: {item_count}
-💵 Total: ₦{total}
-
-🆔 Order ID:
-<code>{order_id}</code>
-""",
-                parse_mode="HTML",
-                reply_markup=kb
-            )
-
-            bot.send_message(ADMIN_ID, "📨 Order message sent to user successfully")
-
-        except Exception as e:
-            try:
-                bot.send_message(ADMIN_ID, f"❌ TELEGRAM SEND ERROR:\n{e}")
-            except:
-                pass
-            return
-
-        try:
-            bot.answer_callback_query(c.id)
-        except Exception as e:
-            try:
-                bot.send_message(ADMIN_ID, f"❌ CALLBACK ANSWER ERROR:\n{e}")
-            except:
-                pass
-
-        try:
-            bot.send_message(ADMIN_ID, "🎉 CHECKOUT COMPLETED SUCCESSFULLY")
         except:
             pass
 
-        return
+        # ==================================================
+        # PAYSTACK
+        # ==================================================
+        try:
+            pay_url = create_paystack_payment(
+                uid,
+                order_id,
+                total,
+                "Cart Order"
+            )
+        except:
+            return
 
-    
+        if not pay_url:
+            return
+
+        # ==================================================
+        # FORMAT DISPLAY (LIKE PAYALL)
+        # ==================================================
+        unique_titles = []
+        seen = set()
+
+        for key, g in groups.items():
+            first_item = g["items"][0]
+            title = first_item[1]
+            if key not in seen:
+                unique_titles.append(title)
+                seen.add(key)
+
+        item_count = sum(len(g["items"]) for g in groups.values())
+
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
+        kb.add(InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{order_id}"))
+
+        bot.send_message(
+            uid,
+            f"""🧺 <b>CART CHECKOUT</b>
+
+👤 <b>Your name is:</b> {user_name}
+
+🎬 <b>Films:</b>
+{", ".join(unique_titles)}
+
+📦 <b>Films:</b> {item_count}
+🗂 <b>G-orders:</b> {len(groups)}
+
+💵 <b>Total amount:</b> ₦{total}
+
+🆔 <b>Order ID:</b>
+<code>{order_id}</code>
+""",
+            parse_mode="HTML",
+            reply_markup=kb
+        )
+
+        bot.answer_callback_query(c.id)
+        return
 
     # =====================
     # VIEW CART

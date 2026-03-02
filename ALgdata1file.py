@@ -894,6 +894,28 @@ HOWTO_STATE = {}
 
 
 # ======================================================
+@bot.message_handler(content_types=['new_chat_members'])
+def get_group_id(message):
+
+    try:
+        chat_id = message.chat.id
+        chat_title = message.chat.title or "Unknown"
+
+        bot.send_message(
+            ADMIN_ID,
+            f"""✅ GROUP DETECTED
+
+📛 Name: {chat_title}
+🆔 ID:
+<code>{chat_id}</code>
+""",
+            parse_mode="HTML"
+        )
+
+    except:
+        pass
+
+
 # /update  (ADMIN ONLY)
 # ======================================================
 @bot.message_handler(commands=["update"])

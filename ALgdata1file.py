@@ -1,4 +1,4 @@
-## bot.py  (PostgreSQL SAFE – FULL FIX, nothing removed)
+r## bot.py  (PostgreSQL SAFE – FULL FIX, nothing removed)
 
 import telebot
 from telebot import types
@@ -30,6 +30,280 @@ conn = psycopg2.connect(DATABASE_URL)
 conn.autocommit = True
 cur = conn.cursor()
 
+
+# ==========================================
+# AUTO DB FIX: ENSURE invite_link COLUMN
+# ==========================================
+def ensure_vip_invite_column():
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        # Check if column exists
+        cur.execute("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name='vip_members'
+            AND column_name='invite_link'
+        """)
+        exists = cur.fetchone()
+
+        if not exists:
+            cur.execute("""
+                ALTER TABLE vip_members
+                ADD COLUMN invite_link TEXT DEFAULT NULL
+            """)
+            conn.commit()
+
+            try:
+                bot.send_message(ADMIN_ID, "✅ invite_link column created successfully.")
+            except:
+                pass
+        else:
+            try:
+                bot.send_message(ADMIN_ID, "ℹ invite_link column already exists.")
+            except:
+                pass
+
+        cur.close()
+        conn.close()
+
+    except Exception as e:
+        try:
+            bot.send_message(ADMIN_ID, f"❌ DB AUTO FIX ERROR:\n{e}")
+        except:
+            pass
+
+
+# Run immediately on startup
+ensure_vip_invite_column()
+
+
+# ============================================
+# VIP TABLE AUTO STRUCTURE FIX (RUN ON START)
+# ============================================
+
+def ensure_vip_table_structure():
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        print("🔍 Checking VIP table structure...")
+
+        # ================= CHECK TABLE =================
+        cur.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = 'vip_members'
+            )
+        """)
+        table_exists = cur.fetchone()[0]
+
+        if not table_exists:
+            print("⚠️ vip_members table not found. Creating it...")
+
+            cur.execute("""
+                CREATE TABLE vip_members (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT UNIQUE NOT NULL,
+                    order_id TEXT,
+                    join_date TIMESTAMP,
+                    expire_at TIMESTAMP,
+                    status TEXT DEFAULT 'active',
+                    warn1_sent BOOLEAN DEFAULT FALSE,
+                    warn2_sent BOOLEAN DEFAULT FALSE,
+                    payment_date TIMESTAMP DEFAULT NOW()
+                )
+            """)
+
+            conn.commit()
+            print("✅ vip_members table created.")
+
+        else:
+            print("✅ vip_members table exists. Checking columns...")
+
+            # ================= CHECK COLUMNS =================
+            cur.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name='vip_members'
+            """)
+            existing_cols = [r[0] for r in cur.fetchall()]
+
+            def add_column(query, col_name):
+                if col_name not in existing_cols:
+                    print(f"⚠️ Adding missing column: {col_name}")
+                    cur.execute(query)
+
+            add_column(
+                "ALTER TABLE vip_members ADD COLUMN order_id TEXT",
+                "order_id"
+            )
+
+            add_column(
+                "ALTER TABLE vip_members ADD COLUMN join_date TIMESTAMP",
+                "join_date"
+            )
+
+            add_column(
+                "ALTER TABLE vip_members ADD COLUMN expire_at TIMESTAMP",
+                "expire_at"
+            )
+
+            add_column(
+                "ALTER TABLE vip_members ADD COLUMN status TEXT DEFAULT 'active'",
+                "status"
+            )
+
+            add_column(
+                "ALTER TABLE vip_members ADD COLUMN warn1_sent BOOLEAN DEFAULT FALSE",
+                "warn1_sent"
+            )
+
+            add_column(
+                "ALTER TABLE vip_members ADD COLUMN warn2_sent BOOLEAN DEFAULT FALSE",
+                "warn2_sent"
+            )
+
+            add_column(
+                "ALTER TABLE vip_members ADD COLUMN payment_date TIMESTAMP DEFAULT NOW()",
+                "payment_date"
+            )
+
+            conn.commit()
+            print("✅ VIP table structure verified.")
+
+        cur.close()
+        conn.close()
+
+    except Exception as e:
+        print("❌ VIP STRUCTURE CHECK FAILED:", e)
+
+
+# Run automatically when app starts
+ensure_vip_table_structure()
+
+
+# =============================
+# ENSURE VIP MEMBERS TABLE
+# =============================
+def ensure_vip_members_table():
+    try:
+        # 1️⃣ Create table if not exists
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS vip_members (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT UNIQUE NOT NULL
+            )
+        """)
+
+        # 2️⃣ Ensure order_id column
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name='vip_members'
+            AND column_name='order_id'
+        """)
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE vip_members ADD COLUMN order_id TEXT")
+
+        # 3️⃣ Ensure join_date column
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name='vip_members'
+            AND column_name='join_date'
+        """)
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE vip_members ADD COLUMN join_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+
+        # 4️⃣ Ensure expire_at column
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name='vip_members'
+            AND column_name='expire_at'
+        """)
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE vip_members ADD COLUMN expire_at TIMESTAMP")
+
+        # 5️⃣ Ensure status column
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name='vip_members'
+            AND column_name='status'
+        """)
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE vip_members ADD COLUMN status VARCHAR(20) DEFAULT 'active'")
+
+        print("✅ vip_members table structure verified")
+
+    except Exception as e:
+        print("❌ VIP MEMBERS MIGRATION ERROR:", e)
+
+
+# 🔥 Run at startup
+ensure_vip_members_table()
+# =============================
+# ENSURE VIP MEMBERS TABLE
+# =============================
+def ensure_vip_members_table():
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS vip_members (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT UNIQUE NOT NULL
+            )
+        """)
+
+        # Helper function
+        def ensure_column(column_name, column_type):
+            cur.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name='vip_members'
+                AND column_name=%s
+            """, (column_name,))
+            if not cur.fetchone():
+                cur.execute(f"ALTER TABLE vip_members ADD COLUMN {column_name} {column_type}")
+
+        # Required columns
+        ensure_column("order_id", "TEXT")
+        ensure_column("join_date", "TIMESTAMP")
+        ensure_column("expire_at", "TIMESTAMP")
+        ensure_column("status", "VARCHAR(20) DEFAULT 'active'")
+        ensure_column("warn1_sent", "BOOLEAN DEFAULT FALSE")
+        ensure_column("warn2_sent", "BOOLEAN DEFAULT FALSE")
+        ensure_column("payment_date", "TIMESTAMP")
+
+        print("✅ vip_members table structure verified")
+
+    except Exception as e:
+        print("❌ VIP MEMBERS MIGRATION ERROR:", e)
+
+# =============================
+# ENSURE ORDERS TABLE STRUCTURE
+# =============================
+def ensure_orders_columns():
+    try:
+        cur.execute("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name='orders'
+              AND column_name='type'
+        """)
+        exists = cur.fetchone()
+
+        if not exists:
+            cur.execute("ALTER TABLE orders ADD COLUMN type VARCHAR(20) DEFAULT 'film'")
+            print("✅ Column 'type' added successfully")
+        else:
+            print("✅ Column 'type' already exists")
+
+    except Exception as e:
+        print("❌ MIGRATION ERROR:", e)
+
+
+# 🔥 Run migration once at startup
+ensure_orders_columns()
+
+
 # ======================
 # GLOBAL STATES
 # ======================
@@ -41,6 +315,7 @@ allfilms_sessions = {}
 cart_sessions = {}
 series_sessions = {}
 user_states = {}
+active_links = {}
 
 # =========================
 # DATABASE TABLES (SAFE)
@@ -85,7 +360,25 @@ CREATE TABLE IF NOT EXISTS orders (
     amount INTEGER,
     paid INTEGER DEFAULT 0,
     pay_ref TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    type VARCHAR(20) DEFAULT 'film'
+)
+""")
+
+
+# -------- VIP MEMBERS --------
+cur.execute("""
+CREATE TABLE IF NOT EXISTS vip_members (
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT UNIQUE NOT NULL,
+    order_id TEXT,
+    join_date TIMESTAMP,
+    expire_at TIMESTAMP,
+    status VARCHAR(20) DEFAULT 'active',
+    warn1_sent BOOLEAN DEFAULT FALSE,
+    warn2_sent BOOLEAN DEFAULT FALSE,
+    payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    invite_link TEXT DEFAULT NULL
 )
 """)
 
@@ -336,9 +629,10 @@ import urllib.parse
 import os
 import hmac
 import hashlib
-
+# Store order message temporarily in memory
+ORDER_MESSAGES = {}
 admin_states = {}
-
+active_links = {}
 # --- Admins configuration ---
 ADMINS = [6603268127]
 
@@ -347,12 +641,23 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 BOT_MODE = os.getenv("BOT_MODE", "polling")
 
+VIP_PRICE = 101
+VIP_DURATION_VALUE = 4
+VIP_DURATION_UNIT = "minutes"
+
+WARNING_1_VALUE = 2
+WARNING_1_UNIT = "minutes"
+
+WARNING_2_VALUE = 3
+WARNING_2_UNIT = "minutes"
 ADMIN_ID = 6603268127
 OTP_ADMIN_ID = 6603268127
 
 BOT_USERNAME = "Algaitabot"
 CHANNEL = "@Algaitamoviestore"
 
+COUNTDOWN_SECONDS = 70
+VIP_LINK = "https://t.me/+k4O-dsySLZBlOTM0"  # saka permanent group link naka
 # ========= DATABASE CONFIG =========
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
@@ -365,9 +670,13 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 PAYSTACK_BASE = "https://api.paystack.co"
 
+
+VIP_GROUP_ID = -1003769342354
+
 # === PAYMENTS / STORAGE ===
 PAYMENT_NOTIFY_GROUP = -1003555015230
 STORAGE_CHANNEL = -1003520788779
+
 SEND_ADMIN_PAYMENT_NOTIF = False
 
 ADMIN_USERNAME = "CEOalgaitabot"
@@ -497,9 +806,6 @@ def send_feedback_prompt(user_id, order_id):
         print("FEEDBACK SEND ERROR:", e)
 
 
-
-
-
 @app.route("/webhook", methods=["POST"])
 def paystack_webhook():
 
@@ -547,7 +853,7 @@ def paystack_webhook():
 
     cur.execute(
         """
-        SELECT user_id, amount, paid
+        SELECT user_id, amount, paid, type
         FROM orders
         WHERE id=%s
         """,
@@ -560,7 +866,7 @@ def paystack_webhook():
         conn.close()
         return "Order not found", 200
 
-    user_id, expected_amount, paid = row
+    user_id, expected_amount, paid, order_type = row
 
     if paid == 1:
         cur.close()
@@ -572,23 +878,23 @@ def paystack_webhook():
         conn.close()
         return "Wrong payment", 200
 
-    # ================= ITEMS =================
-    cur.execute(
-        "SELECT file_id FROM order_items WHERE order_id=%s",
-        (order_id,)
-    )
-    items = cur.fetchall()
-
-    if not items:
-        cur.close()
-        conn.close()
-        return "Empty order", 200
-
     # ================= MARK AS PAID =================
     cur.execute(
         "UPDATE orders SET paid=1 WHERE id=%s",
         (order_id,)
     )
+
+    # ================= DELETE ORIGINAL ORDER MESSAGE =================
+    if order_id in ORDER_MESSAGES:
+
+        chat_id, message_id = ORDER_MESSAGES[order_id]
+
+        try:
+            bot.delete_message(chat_id, message_id)
+        except:
+            pass
+
+        del ORDER_MESSAGES[order_id]
 
     # ================= USER INFO =================
     cur.execute(
@@ -610,90 +916,227 @@ def paystack_webhook():
         except:
             full_name = "User"
 
-    # ================= TITLES (GROUPED - NO DUPLICATE) =================
-    cur.execute(
-        """
-        SELECT i.title, i.group_key
-        FROM order_items oi
-        JOIN items i ON i.id = oi.item_id
-        WHERE oi.order_id=%s
-        """,
-        (order_id,)
-    )
+    try:
+        chat = bot.get_chat(user_id)
+        tg_username = f"@{chat.username}" if chat.username else "unknown"
+    except:
+        tg_username = "unknown"
 
-    rows = cur.fetchall()
+    # =====================================================
+    # ================== FILM ORDER =======================
+    # =====================================================
+    if order_type == "film":
 
-    groups = {}
-
-    for title, group_key in rows:
-        key = group_key or f"single_{title}"
-
-        if key not in groups:
-            groups[key] = {
-                "title": title,
-                "count": 0
-            }
-
-        groups[key]["count"] += 1
-
-    lines = []
-    for g in groups.values():
-        if g["count"] > 1:
-            lines.append(f"{g['title']} ({g['count']})")
-        else:
-            lines.append(f"{g['title']}")
-
-    titles_text = ", ".join(lines) if lines else "N/A"
-
-    conn.commit()
-    cur.close()
-    conn.close()
-
-    # ================= USER MESSAGE =================
-    kb = InlineKeyboardMarkup()
-    kb.add(
-        InlineKeyboardButton(
-            "⬇️ DOWNLOAD NOW",
-            callback_data=f"deliver:{order_id}"
+        cur.execute(
+            """
+            SELECT i.title, i.group_key
+            FROM order_items oi
+            JOIN items i ON i.id = oi.item_id
+            WHERE oi.order_id=%s
+            """,
+            (order_id,)
         )
-    )
+        rows = cur.fetchall()
 
-    bot.send_message(
-        user_id,
-        f"""🎉 <b>Payment Successful!</b>
+        if not rows:
+            cur.close()
+            conn.close()
+            return "Empty order", 200
 
-👤 <b>Name:</b> {full_name}
-🎬 <b>Items:</b> {titles_text}
+        groups = {}
 
-🗃 <b>Order ID:</b>
-<code>{order_id}</code>
+        for title, group_key in rows:
+            key = group_key or f"single_{title}"
+            if key not in groups:
+                groups[key] = {"title": title, "count": 0}
+            groups[key]["count"] += 1
 
-💳 <b>Amount:</b> ₦{paid_amount}
-""",
-        parse_mode="HTML",
-        reply_markup=kb
-    )
+        lines = []
+        for g in groups.values():
+            if g["count"] > 1:
+                lines.append(f"{g['title']} ({g['count']})")
+            else:
+                lines.append(f"{g['title']}")
 
-    # ================= ADMIN =================
-    if PAYMENT_NOTIFY_GROUP:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        titles_text = ", ".join(lines) if lines else "N/A"
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        kb = InlineKeyboardMarkup()
+        kb.add(
+            InlineKeyboardButton(
+                "⬇️ DOWNLOAD NOW",
+                callback_data=f"deliver:{order_id}"
+            )
+        )
 
         bot.send_message(
-            PAYMENT_NOTIFY_GROUP,
-            f"""✅ <b>NEW PAYMENT RECEIVED</b>
+            user_id,
+            f"""🎉 <b>PAYMENT SUCCESSFUL</b>
 
-👤 User: {full_name}
-🆔 User ID: <code>{user_id}</code>
+👤 <b>Name:</b> {full_name}
+🆔 <b>User ID:</b> <code>{user_id}</code>
 
-🎬 Items: {titles_text}
-🗃 Order ID: <code>{order_id}</code>
-💰 Amount: ₦{paid_amount}
-⏰ Time: {now}
+🎬 <b>Items:</b> {titles_text}
+🗃 <b>Order ID:</b> <code>{order_id}</code>
+
+💳 <b>Amount Paid:</b> ₦{paid_amount}
+
+⬇️ Click the button below to download your files.
 """,
-            parse_mode="HTML"
+            parse_mode="HTML",
+            reply_markup=kb
         )
 
+        if PAYMENT_NOTIFY_GROUP:
+            from datetime import datetime, timedelta
+            now = datetime.now()
+            now_local = now + timedelta(hours=1)
+
+            bot.send_message(
+                PAYMENT_NOTIFY_GROUP,
+                f"""✅ <b>NEW PAYMENT RECEIVED</b>
+
+👤 <b>Name:</b> {full_name}
+🔗 <b>Username:</b> {tg_username}
+🆔 <b>User ID:</b> <code>{user_id}</code>
+
+🎬 <b>Items:</b> {titles_text}
+🗃 <b>Order ID:</b> <code>{order_id}</code>
+
+💰 <b>Amount:</b> ₦{paid_amount}
+⏰ <b>Time:</b> {now_local.strftime("%Y-%m-%d %H:%M:%S")}
+""",
+                parse_mode="HTML"
+            )
+
+        return "OK", 200
+
+    # =====================================================
+    # ================== VIP ORDER ========================
+    # =====================================================
+    elif order_type == "vip":
+
+        from datetime import datetime, timedelta
+
+        start_date = datetime.now()
+
+        if VIP_DURATION_UNIT == "minutes":
+            end_date = start_date + timedelta(minutes=VIP_DURATION_VALUE)
+        else:
+            end_date = start_date + timedelta(days=VIP_DURATION_VALUE)
+
+        # Nigeria display fix only
+        start_local = start_date + timedelta(hours=1)
+        end_local = end_date + timedelta(hours=1)
+
+        already_in_group = False
+        try:
+            member = bot.get_chat_member(VIP_GROUP_ID, user_id)
+            if member.status in ["member", "administrator", "creator"]:
+                already_in_group = True
+        except:
+            already_in_group = False
+
+        if already_in_group:
+
+            cur.execute(
+                """
+                INSERT INTO vip_members   
+                (user_id, order_id, join_date, expire_at, status, warn1_sent, warn2_sent, payment_date)
+                VALUES (%s,%s,%s,%s,'active',FALSE,FALSE,NOW())
+                ON CONFLICT (user_id)
+                DO UPDATE SET
+                    order_id = EXCLUDED.order_id,
+                    join_date = EXCLUDED.join_date,
+                    expire_at = EXCLUDED.expire_at,
+                    status = 'active',
+                    warn1_sent = FALSE,
+                    warn2_sent = FALSE,
+                    payment_date = NOW()
+                """,
+                (user_id, order_id, start_date, end_date)
+            )
+
+            conn.commit()
+            cur.close()
+            conn.close()
+
+            bot.send_message(
+                user_id,
+                f"""💎 <b>AN SABUNTA VIP NAKA</b>
+
+📅 <b>Ka biya a yau:</b> {start_local.strftime("%Y-%m-%d")}
+⏳ <b>Sake biya aranar ko kafin:</b> {end_local.strftime("%Y-%m-%d")}
+
+Na gode da kasancewa tare da mu 🙏""",
+                parse_mode="HTML"
+            )
+
+            # Admin notification
+            try:
+                bot.send_message(
+                    ADMIN_ID,
+                    f"""🔔 VIP RENEWAL
+
+👤 Name: {full_name}
+🆔 User ID: {user_id}
+💰 Amount: ₦{paid_amount}
+
+Ya sabunta VIP subscription nasa."""
+                )
+            except:
+                pass
+
+        else:
+
+            cur.execute(
+                """
+                INSERT INTO vip_members   
+                (user_id, order_id, join_date, expire_at, status, warn1_sent, warn2_sent, payment_date)
+                VALUES (%s,%s,NULL,NULL,'active',FALSE,FALSE,NOW())
+                ON CONFLICT (user_id)
+                DO UPDATE SET
+                    order_id = EXCLUDED.order_id,
+                    join_date = NULL,
+                    expire_at = NULL,
+                    status = 'active',
+                    warn1_sent = FALSE,
+                    warn2_sent = FALSE,
+                    payment_date = NOW()
+                """,
+                (user_id, order_id)
+            )
+
+            conn.commit()
+            cur.close()
+            conn.close()
+
+            vip_kb = InlineKeyboardMarkup()
+            vip_kb.add(
+                InlineKeyboardButton(
+                    "🔐 JOIN VIP GROUP",
+                    callback_data=f"vipnow:{order_id}"
+                )
+            )
+
+            bot.send_message(
+                user_id,
+                f"""💎 <b>VIP SUBSCRIPTION ACTIVATED</b>
+
+📅 <b>Start Date:</b> {start_local.strftime("%Y-%m-%d")}
+⏳ <b>End Date:</b> {end_local.strftime("%Y-%m-%d")}
+""",
+                parse_mode="HTML",
+                reply_markup=vip_kb
+            )
+
+        return "OK", 200
+
     return "OK", 200
+
 
 # 
 # ========= TELEGRAM WEBHOOK =========
@@ -872,7 +1315,678 @@ def deliver_items(call):
     send_feedback_prompt(user_id, order_id)
 
 
-# =========================================================
+@bot.callback_query_handler(func=lambda c: c.data == "vipgroup")
+def vip_group_info(call):
+
+    text = """💎 <b>TSARIN SHIGA VIP GROUP</b>
+━━━━━━━━━━━━━━━━━━
+🔹 <b>Kudin Rijista:</b> ₦1,500  
+🔹 <b>Subscription:</b> Kwana 30  
+🔹 Ba za a sake biyan kudi ba har sai bayan kwanaki 30
+━━━━━━━━━━━━━━━━━━
+🔹 Bayan ka biya, za a tura maka <b>1-Time Secure Link</b>  
+🔹 A cikin VIP ana saka <b>sabbin fina-finan India duk sati</b>
+📅 <b>Ranaku:</b> Lahadi & Laraba
+━━━━━━━━━━━━━━━━━━
+🎬 Kana da damar neman:
+• Sabon fim  
+• Tsohon fim  
+• Fim na musamman  
+Ba tare da sake biyan wani ƙarin kuɗi ba.
+━━━━━━━━━━━━━━━━━━
+🔒 <b>VIP SUBSCRIPTION</b>
+👇👇👇👇👇👇👇
+"""
+
+    kb = InlineKeyboardMarkup()
+    kb.add(
+        InlineKeyboardButton("💳 SUBSCRIBE NOW", callback_data="subvip")
+    )
+
+    bot.send_message(
+        call.message.chat.id,
+        text,
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+
+    bot.answer_callback_query(call.id)
+
+
+# ======= VIP ORDER CREATOR (CALLBACK subvip) =========
+import uuid
+from psycopg2.extras import RealDictCursor
+
+@bot.callback_query_handler(func=lambda c: c.data == "subvip")
+def vipgroup_handler(c):
+
+    bot.answer_callback_query(c.id)
+
+    uid = c.from_user.id
+    first_name = c.from_user.first_name or "User"
+
+    conn = get_conn()
+    if not conn:
+        return
+
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    # ========= CHECK EXISTING UNPAID VIP =========
+    cur.execute(
+        """
+        SELECT id, amount
+        FROM orders
+        WHERE user_id=%s
+          AND type='vip'
+          AND paid=0
+        LIMIT 1
+        """,
+        (uid,)
+    )
+    row = cur.fetchone()
+
+    # ========= REUSE OR CREATE =========
+    if row:
+        order_id = row["id"]
+
+        if int(row["amount"]) != int(VIP_PRICE):
+            cur.execute(
+                "UPDATE orders SET amount=%s WHERE id=%s",
+                (VIP_PRICE, order_id)
+            )
+            conn.commit()
+    else:
+        order_id = str(uuid.uuid4())
+        cur.execute(
+            """
+            INSERT INTO orders (id, user_id, amount, paid, type)
+            VALUES (%s,%s,%s,0,'vip')
+            """,
+            (order_id, uid, VIP_PRICE)
+        )
+        conn.commit()
+
+    # ========= CREATE PAYMENT LINK =========
+    pay_url = create_paystack_payment(
+        uid,
+        order_id,
+        VIP_PRICE,
+        "VIP Subscription"
+    )
+
+    if not pay_url:
+        cur.close()
+        conn.close()
+        return
+
+    # ========= FORMAT =========
+    if VIP_DURATION_UNIT == "minutes":
+        duration_text = f"{VIP_DURATION_VALUE} Minutes"
+    else:
+        duration_text = f"{VIP_DURATION_VALUE} Days"
+
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton(f"💳 Pay ₦{VIP_PRICE}", url=pay_url))
+    kb.add(InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{order_id}"))
+
+    # ✅ EDIT MESSAGE INSTEAD OF SEND
+    bot.edit_message_text(
+        f"""🔥 <b>UNLOCK VIP ACCESS</b> 🔥
+
+{first_name}, you are almost in our VIP group.
+
+💎 VIP Algaita Bot(Group)
+💵 ₦{VIP_PRICE} only
+⏳ {duration_text} access
+
+⚡ Access starts after payment
+🔐 Secure payment
+
+Tap below to continue👇.
+""",
+        chat_id=c.message.chat.id,
+        message_id=c.message.message_id,
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+
+    # ✅ STORE MESSAGE IN MEMORY
+    ORDER_MESSAGES[order_id] = (
+        c.message.chat.id,
+        c.message.message_id
+    )
+
+    cur.close()
+    conn.close()
+
+import threading  
+import time  
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton  
+  
+  
+@bot.callback_query_handler(func=lambda c: c.data.startswith("vipnow:"))  
+def handle_vip_join(c):  
+  
+    try:  
+        bot.answer_callback_query(c.id)  
+  
+        user_id = c.from_user.id  
+        first_name = c.from_user.first_name or "User"  
+  
+        sent_chat_id = c.message.chat.id  
+        sent_message_id = c.message.message_id  
+  
+        # ===== JOIN BUTTON =====  
+        kb = InlineKeyboardMarkup()  
+        kb.add(  
+            InlineKeyboardButton(  
+                "🔐 Join VIP Now",  
+                url=VIP_LINK  
+            )  
+        )  
+  
+        bot.edit_message_text(  
+            f"🔐 <b>VIP ACCESS READY</b>\n\n"  
+            f"⏳ Link expires in {COUNTDOWN_SECONDS} seconds...\n\n"  
+            f"Tap below to join 👇",  
+            chat_id=sent_chat_id,  
+            message_id=sent_message_id,  
+            parse_mode="HTML",  
+            reply_markup=kb  
+        )  
+  
+        # ===== COUNTDOWN =====  
+        def countdown():  
+  
+            for remaining in range(COUNTDOWN_SECONDS - 1, -1, -1):  
+  
+                time.sleep(1)  
+  
+                # ===== CHECK DIRECT FROM GROUP =====  
+                try:  
+                    member = bot.get_chat_member(VIP_GROUP_ID, user_id)  
+  
+                    if member.status in ["member", "administrator", "creator"]:  
+  
+                        # ================= DB UPDATE ACTIVE =================  
+                        try:  
+                            from datetime import datetime, timedelta  
+  
+                            conn = get_conn()  
+                            cur = conn.cursor()  
+  
+                            # ✅ JOIN DATE = lokacin da ya shiga  
+                            join_date = datetime.now()  
+  
+                            # ✅ EXPIRE = lissafi daga saman file  
+                            if VIP_DURATION_UNIT == "minutes":  
+                                expire_at = join_date + timedelta(minutes=VIP_DURATION_VALUE)  
+                            else:  
+                                expire_at = join_date + timedelta(days=VIP_DURATION_VALUE)  
+  
+                            # ===== CHECK IF USER EXISTS =====
+                            cur.execute(
+                                "SELECT 1 FROM vip_members WHERE user_id=%s",
+                                (user_id,)
+                            )
+                            exists = cur.fetchone()
+
+                            if exists:
+                                cur.execute(  
+                                    """  
+                                    UPDATE vip_members  
+                                    SET status='active',  
+                                        join_date=%s,  
+                                        expire_at=%s,  
+                                        warn1_sent=FALSE,  
+                                        warn2_sent=FALSE  
+                                    WHERE user_id=%s  
+                                    """,  
+                                    (join_date, expire_at, user_id)  
+                                )  
+                            else:
+                                cur.execute(
+                                    """
+                                    INSERT INTO vip_members
+                                    (user_id, status, join_date, expire_at, warn1_sent, warn2_sent)
+                                    VALUES (%s, 'active', %s, %s, FALSE, FALSE)
+                                    """,
+                                    (user_id, join_date, expire_at)
+                                )
+
+                            conn.commit()  
+                            cur.close()  
+                            conn.close()  
+  
+                        except:  
+                            pass  
+                        # =====================================================  
+  
+                        # EDIT MESSAGE TO USER JOINED  
+                        try:  
+                            bot.edit_message_text(  
+                                f"{first_name} Joined ✅",  
+                                chat_id=sent_chat_id,  
+                                message_id=sent_message_id  
+                            )  
+                        except:  
+                            pass  
+  
+                        # SEND THANK YOU PRIVATE MESSAGE  
+                        try:  
+                            bot.send_message(  
+                                user_id,  
+                                "🙏 Thank you our valued customer.\n"  
+                                "Fatanmu zakaji dadin wannan group."  
+                            )  
+                        except:  
+                            pass  
+  
+                        return  
+                except:  
+                    pass  
+  
+                # ===== UPDATE COUNTDOWN =====  
+                try:  
+                    bot.edit_message_text(  
+                        f"🔐 <b>VIP ACCESS READY</b>\n\n"  
+                        f"⏳ Link expires in {remaining} seconds...\n\n"  
+                        f"Tap below to join 👇",  
+                        chat_id=sent_chat_id,  
+                        message_id=sent_message_id,  
+                        parse_mode="HTML",  
+                        reply_markup=kb  
+                    )  
+                except:  
+                    pass  
+  
+            # ===== TIME OUT =====  
+            admin_kb = InlineKeyboardMarkup()  
+            admin_kb.add(  
+                InlineKeyboardButton(  
+                    "👤ADMIN HELP",  
+                    url=f"https://t.me/{ADMIN_USERNAME}"  
+                )  
+            )  
+  
+            try:  
+                bot.edit_message_text(  
+                    "❌ TIME OUT\n\n"  
+                    "This link has expired.",  
+                    chat_id=sent_chat_id,  
+                    message_id=sent_message_id,  
+                    reply_markup=admin_kb  
+                )  
+            except:  
+                pass  
+  
+            try:  
+                time.sleep(2)  
+                bot.send_message(  
+                    user_id,  
+                    "An turama maka link amma link din har yayi expire\n"  
+                    "baka shiga ba don haka tintini admin."  
+                )  
+            except:  
+                pass  
+  
+        threading.Thread(target=countdown).start()  
+  
+    except:  
+        pass  
+  
+import threading  
+import time  
+from datetime import datetime  
+  
+def vip_expiry_checker():  
+  
+    while True:  
+        try:  
+            conn = get_conn()  
+            cur = conn.cursor()  
+  
+            cur.execute(  
+                """  
+                SELECT user_id  
+                FROM vip_members  
+                WHERE status='active'  
+                AND expire_at IS NOT NULL  
+                AND expire_at <= NOW()  
+                """  
+            )  
+  
+            expired_users = cur.fetchall()  
+  
+            for row in expired_users:  
+                user_id = row[0]  
+  
+                # ===== REMOVE FROM GROUP (NOT PERMANENT BAN) =====  
+                try:  
+                    bot.ban_chat_member(VIP_GROUP_ID, user_id)  
+                    bot.unban_chat_member(VIP_GROUP_ID, user_id)  
+                except:  
+                    pass  
+  
+                # ===== UPDATE STATUS =====  
+                try:  
+                    cur.execute(  
+                        """  
+                        UPDATE vip_members  
+                        SET status='expired'  
+                        WHERE user_id=%s  
+                        """,  
+                        (user_id,)  
+                    )  
+                    conn.commit()  
+  
+                    # ===== WARNING 3 CALL =====  
+                    send_expired_message(user_id)  
+  
+                except:  
+                    pass  
+  
+            cur.close()  
+            conn.close()  
+  
+        except:  
+            pass  
+  
+        time.sleep(60)  # check every 60 seconds  
+  
+  
+threading.Thread(target=vip_expiry_checker, daemon=True).start()
+
+# ==========================================
+# VIP WARNING SYSTEM (HAUSA VERSION)
+# ==========================================
+
+import threading
+import time
+from datetime import datetime, timedelta
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+
+def vip_warning_system():
+
+    while True:
+        try:
+            conn = get_conn()
+            cur = conn.cursor()
+
+            now = datetime.now()
+
+            # ===============================
+            # GET ALL ACTIVE USERS
+            # ===============================
+            cur.execute("""
+                SELECT user_id, expire_at, warn1_sent, warn2_sent
+                FROM vip_members
+                WHERE status='active'
+                AND expire_at IS NOT NULL
+            """)
+
+            users = cur.fetchall()
+
+            for user_id, expire_at, warn1_sent, warn2_sent in users:
+
+                if not expire_at:
+                    continue
+
+                remaining = expire_at - now
+                remaining_seconds = remaining.total_seconds()
+
+                if remaining_seconds <= 0:
+                    continue
+
+                # =================================
+                # CONVERT WARNING 1 THRESHOLD
+                # =================================
+                if WARNING_1_UNIT == "minutes":
+                    threshold1 = timedelta(minutes=WARNING_1_VALUE)
+                    time_left_value = int(remaining_seconds // 60)
+                    unit_text = "minti"
+                else:
+                    threshold1 = timedelta(days=WARNING_1_VALUE)
+                    time_left_value = remaining.days
+                    unit_text = "kwana"
+
+                # =================================
+                # WARNING 1
+                # =================================
+                if not warn1_sent and remaining <= threshold1:
+
+                    try:
+                        kb = InlineKeyboardMarkup()
+                        kb.add(
+                            InlineKeyboardButton(
+                                "💳REPAY NOW",
+                                callback_data="subvip"
+                            )
+                        )
+
+                        bot.send_message(
+                            user_id,
+                            f"⏳ TUNATARWA ZANYI MAKA/n\n"
+                            f"Subscription ɗinka (ALGAITA VIP) zai kare nan da {time_left_value} {unit_text}.\n\n"
+                            f"Muna matuƙar godiya da kasancewarka tare da mu ❤️\n"
+                            f"Da fatan za ka sabunta kafin lokacin ya ƙare domin cigaba da more VIP group.",
+                            reply_markup=kb
+                        )
+
+                        cur.execute("""
+                            UPDATE vip_members
+                            SET warn1_sent=TRUE
+                            WHERE user_id=%s
+                        """, (user_id,))
+                        conn.commit()
+
+                    except:
+                        pass
+
+                # =================================
+                # CONVERT WARNING 2 THRESHOLD
+                # =================================
+                if WARNING_2_UNIT == "minutes":
+                    threshold2 = timedelta(minutes=WARNING_2_VALUE)
+                    time_left_value2 = int(remaining_seconds // 60)
+                    unit_text2 = "minti"
+                else:
+                    threshold2 = timedelta(days=WARNING_2_VALUE)
+                    time_left_value2 = remaining.days
+                    unit_text2 = "kwana"
+
+                # =================================
+                # WARNING 2 (FINAL)
+                # =================================
+                if not warn2_sent and remaining <= threshold2:
+
+                    try:
+                        kb = InlineKeyboardMarkup()
+                        kb.add(
+                            InlineKeyboardButton(
+                                "💳REPAY NOW",
+                                callback_data="subvip"
+                            )
+                        )
+
+                        bot.send_message(
+                            user_id,
+                            f"⚠NAZO NA SANAR DAKAIn\n"
+                            f"Subscription ɗinka (ALGAITA VIP) zai kare nan da {time_left_value2} {unit_text2}.\n\n"
+                            f"Idan ba ka sabunta ba kafin lokacin ya cika, za a cire ka daga VIP group.\n"
+                            f"Da fatan za ka sabunta yanzu domin kada a cire ka.",
+                            reply_markup=kb
+                        )
+
+                        cur.execute("""
+                            UPDATE vip_members
+                            SET warn2_sent=TRUE
+                            WHERE user_id=%s
+                        """, (user_id,))
+                        conn.commit()
+
+                    except:
+                        pass
+
+            cur.close()
+            conn.close()
+
+        except:
+            pass
+
+        time.sleep(30)  # yana duba duk 30 seconds
+
+
+threading.Thread(target=vip_warning_system, daemon=True).start()
+
+
+
+# ==========================================
+# WARNING 3 (AFTER USER REMOVAL MESSAGE)
+# SAKA WANNAN A CIKIN EXPIRY CHECKER
+# BAYAN AN CANZA status='expired'
+# ==========================================
+
+def send_expired_message(user_id):
+    try:
+        kb = InlineKeyboardMarkup()
+        kb.add(
+            InlineKeyboardButton(
+                "💳REPAY NOW",
+                callback_data="subvip"
+            )
+        )
+
+        bot.send_message(
+            user_id,
+            "❌ An Cire Ka Daga VIP\n\n"
+            "An cire ka daga VIP group saboda subscription ɗinka ya ƙare.\n\n"
+            "Idan kana son komawa domin cigaba da more manyan fina-finai sababbi da tsofaffi,\n"
+            "za ka iya sabunta biyanka yanzu.",
+            reply_markup=kb
+        )
+    except:
+        pass
+
+
+
+# ==========================================
+# ADMIN MANUAL VIP ADD SYSTEM (/vip)
+# ==========================================
+
+from datetime import datetime, timedelta
+
+vip_waiting_admin = set()
+
+
+# ===============================
+# /vip COMMAND (ADMIN ONLY)
+# ===============================
+@bot.message_handler(commands=['vip'])
+def vip_command(message):
+
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    vip_waiting_admin.add(message.from_user.id)
+
+    bot.send_message(
+        message.chat.id,
+        "Turo min user ID ɗin wanda kake son saka a VIP."
+    )
+
+
+# ===============================
+# RECEIVE USER ID
+# ===============================
+@bot.message_handler(func=lambda m: m.from_user.id in vip_waiting_admin)
+def receive_vip_user_id(message):
+
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    try:
+        user_id = int(message.text.strip())
+    except:
+        bot.send_message(message.chat.id, "ID bai inganta ba. Tura lambar user ID kawai.")
+        return
+
+    vip_waiting_admin.remove(message.from_user.id)
+
+    # ===============================
+    # CHECK IF USER IS IN GROUP
+    # ===============================
+    try:
+        member = bot.get_chat_member(VIP_GROUP_ID, user_id)
+
+        if member.status not in ["member", "administrator", "creator"]:
+            bot.send_message(
+                message.chat.id,
+                "Wannan user baya cikin group ɗin."
+            )
+            return
+
+    except:
+        bot.send_message(
+            message.chat.id,
+            "Wannan user baya cikin group ɗin."
+        )
+        return
+
+    # ===============================
+    # CREATE JOIN + EXPIRE DATE
+    # ===============================
+    join_date = datetime.now()
+
+    if VIP_DURATION_UNIT == "minutes":
+        expire_at = join_date + timedelta(minutes=VIP_DURATION_VALUE)
+    else:
+        expire_at = join_date + timedelta(days=VIP_DURATION_VALUE)
+
+    # ===============================
+    # INSERT OR UPDATE USER
+    # ===============================
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("""
+            INSERT INTO vip_members (user_id, join_date, expire_at, status, warn1_sent, warn2_sent)
+            VALUES (%s, %s, %s, 'active', FALSE, FALSE)
+            ON CONFLICT (user_id)
+            DO UPDATE SET
+                join_date = EXCLUDED.join_date,
+                expire_at = EXCLUDED.expire_at,
+                status = 'active',
+                warn1_sent = FALSE,
+                warn2_sent = FALSE
+        """, (user_id, join_date, expire_at))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+    except:
+        bot.send_message(message.chat.id, "An samu matsala wajen saka user a DB.")
+        return
+
+    # ===============================
+    # SUCCESS MESSAGE TO ADMIN
+    # ===============================
+    
+    # ✅ DISPLAY FIX (Nigeria Time +1 hour)
+    expire_local = expire_at + timedelta(hours=1)
+    expire_text = expire_local.strftime("%d %B %Y %H:%M:%S")
+
+    bot.send_message(
+        message.chat.id,
+        f"An saka user {user_id} a VIP.\n\n"
+        f"Za a cire shi ranar:\n{expire_text}"
+    )
+
+
+#=========================================================
 @bot.message_handler(
     func=lambda m: (
         m.text
@@ -894,28 +2008,6 @@ HOWTO_STATE = {}
 
 
 # ======================================================
-@bot.message_handler(content_types=['new_chat_members'])
-def get_group_id(message):
-
-    try:
-        chat_id = message.chat.id
-        chat_title = message.chat.title or "Unknown"
-
-        bot.send_message(
-            ADMIN_ID,
-            f"""✅ GROUP DETECTED
-
-📛 Name: {chat_title}
-🆔 ID:
-<code>{chat_id}</code>
-""",
-            parse_mode="HTML"
-        )
-
-    except:
-        pass
-
-
 # /update  (ADMIN ONLY)
 # ======================================================
 @bot.message_handler(commands=["update"])
@@ -1036,7 +2128,32 @@ def howto_update_flow(m):
 
 
 # ======================================================
+@bot.message_handler(content_types=['new_chat_members'])
+def get_group_id(message):
+
+    try:
+        chat_id = message.chat.id
+        chat_title = message.chat.title or "Unknown"
+
+        bot.send_message(
+            ADMIN_ID,
+            f"""✅ GROUP DETECTED
+
+📛 Name: {chat_title}
+🆔 ID:
+<code>{chat_id}</code>
+""",
+            parse_mode="HTML"
+        )
+
+    except:
+        pass
+
+
 # /post  (ADMIN ONLY)
+
+
+
 # ======================================================
 @bot.message_handler(commands=["post"])
 def post_to_channel(m):
@@ -1294,6 +2411,7 @@ def mask_name(fullname):
 def tr_user(uid, key, default=""):
     return default
 
+
 #farko
 def reply_menu(uid=None):
     kb = InlineKeyboardMarkup()
@@ -1337,6 +2455,11 @@ def reply_menu(uid=None):
         )
     )
 
+    # ===== ROW 4 (VIP GROUP) =====
+    kb.add(
+        InlineKeyboardButton("💎 VIP GROUP", callback_data="vipgroup")
+    )
+
     # ===== ADMIN ONLY BUTTONS =====
     if uid in ADMINS:
         kb.add(
@@ -1346,25 +2469,35 @@ def reply_menu(uid=None):
     return kb
 # end
 
-
-
-
-
-
 def user_main_menu(uid=None):
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
 
     cart_label = tr_user(uid, "btn_cart", default="Check cart")
     help_label = tr_user(uid, "btn_help", default="HELP")
+    vip_label = "🔐VIP GROUP"
+    done_label = "Done"
 
-    # An cire "Films din wannan satin"
-    # Buttons 1   2 a layi daya
-    kb.add(
-        KeyboardButton(help_label),
-        KeyboardButton(cart_label)
+    # ===== VIP GROUP a sama shi kaɗai =====
+    kb.row(
+        KeyboardButton(vip_label)
     )
 
+    # ===== HELP da CART a layi daya =====
+    if str(uid) == str(ADMIN_ID):   # 🔐 Admin only check
+        kb.row(
+            KeyboardButton(help_label),
+            KeyboardButton(cart_label),
+            KeyboardButton(done_label)   # Admin kaɗai zai gani
+        )
+    else:
+        kb.row(
+            KeyboardButton(help_label),
+            KeyboardButton(cart_label)
+        )
+
     return kb
+
+
 
 #Start
 def movie_buttons_inline(mid, user_id=None):
@@ -1518,8 +2651,6 @@ def checkjoin_callback(call):
     except Exception as e:
         bot.send_message(ADMIN_ID, f"ERROR calling start():\n{e}")
 
-
-
 # ======================================
 # ======================================
 # TEXT BUTTON HANDLER (GLOBAL SAFE)
@@ -1527,7 +2658,7 @@ def checkjoin_callback(call):
 @bot.message_handler(
     func=lambda msg: (
         isinstance(getattr(msg, "text", None), str)
-        and msg.text.strip() in ["HELP", "Check cart"]
+        and msg.text.strip() in ["HELP", "Check cart", "🔐VIP GROUP"]
     )
 )
 def user_buttons(message):
@@ -1539,6 +2670,12 @@ def user_buttons(message):
     if txt == "HELP":
 
         kb = InlineKeyboardMarkup()
+        # ===== Arrange HELP, Cart and VIP on same row =====
+        kb.row(
+            InlineKeyboardButton("HELP", callback_data="help_dummy"),
+            InlineKeyboardButton("Check cart", callback_data="cart_dummy"),
+            InlineKeyboardButton("🔐VIP GROUP", callback_data="vip_group_dummy")
+        )
 
         if ADMIN_USERNAME:
             kb.add(
@@ -1587,6 +2724,17 @@ def user_buttons(message):
                 "⚠️ An samu matsala wajen bude cart."
             )
 
+        return
+
+    # ======= VIP GROUP =======
+    if txt == "🔐VIP GROUP":
+        # Ana amfani da callback handler dinka da ka bayar
+        class CallMock:
+            def __init__(self, msg):
+                self.message = msg
+                self.id = None
+        # Yi trigger kai tsaye
+        vip_group_info(CallMock(message))
         return
 
 # ======================================
@@ -2626,7 +3774,7 @@ def groupitem_deeplink_handler(msg):
     kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
     kb.add(InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{order_id}"))
 
-    bot.send_message(
+    sent = bot.send_message(
         uid,
         f"""🧺 <b>Your order created 🎉</b>
 
@@ -2644,9 +3792,12 @@ def groupitem_deeplink_handler(msg):
         reply_markup=kb
     )
 
+    # ===== NEW: STORE MESSAGE FOR AUTO DELETE AFTER PAYMENT =====
+    ORDER_MESSAGES[order_id] = (sent.chat.id, sent.message_id)
+
     cur.close()
     conn.close()
-        
+
 
 # ========= BUYD (ITEM ONLY | DEEP LINK → DM) =========
 
@@ -2936,7 +4087,6 @@ def pay_all_unpaid(call):
         else:
             owned_ids = set()
 
-        # idan user ya riga ya mallaki wasu fim
         if owned_ids:
             kb_owned = InlineKeyboardMarkup()
             kb_owned.add(
@@ -3068,7 +4218,7 @@ def pay_all_unpaid(call):
             )
         )
 
-        bot.send_message(
+        sent = bot.send_message(
             uid,
             f"""🧺 <b>PAY ALL UNPAID ORDERS</b>
 
@@ -3089,6 +4239,9 @@ def pay_all_unpaid(call):
             reply_markup=kb
         )
 
+        # ===== NEW: STORE MESSAGE FOR AUTO DELETE AFTER PAYMENT =====
+        ORDER_MESSAGES[order_id] = (sent.chat.id, sent.message_id)
+
     except Exception:
         pass
 
@@ -3098,9 +4251,6 @@ def pay_all_unpaid(call):
             conn.close()
         except:
             pass
-
-
-
 
 import uuid
 from datetime import datetime
@@ -3491,6 +4641,8 @@ def handle_callback(c):
     except:
         return
 
+    
+
     from psycopg2.extras import RealDictCursor
     import uuid
 
@@ -3685,7 +4837,7 @@ def handle_callback(c):
         kb.add(InlineKeyboardButton("💳 PAY NOW", url=pay_url))
         kb.add(InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{order_id}"))
 
-        bot.send_message(
+        sent = bot.send_message(
             uid,
             f"""🧺 <b>CART CHECKOUT</b>
 
@@ -3706,10 +4858,16 @@ def handle_callback(c):
             reply_markup=kb
         )
 
+        # ===== NEW: STORE MESSAGE FOR WEBHOOK AUTO DELETE =====
+        ORDER_MESSAGES[order_id] = (sent.chat.id, sent.message_id)
+
         bot.answer_callback_query(c.id)
         return
 
-    # =====================
+
+    
+
+# =====================
     # VIEW CART
     # =====================
     if data == "viewcart":

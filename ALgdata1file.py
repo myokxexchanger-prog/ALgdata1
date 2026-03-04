@@ -1424,9 +1424,9 @@ def start(message):
                     f"Someone used your invite link! ID: <code>{uid}</code>",
                     parse_mode="HTML"
                 )
-            except:
+            except Exception as e:
                 pass
-        except:
+        except Exception as e:
             pass
 
     # ========= ADMIN NOTIFY =========
@@ -1443,8 +1443,10 @@ def start(message):
         print("Failed to notify admin about visitor:", e)
 
     # ========= JOIN CHECK =========
-    joined = check_join(uid)
-
+    try:
+        joined = check_join(uid)
+    except Exception as e:
+        joined = False
 
 
     # ❌ IDAN BAI SHIGA BA
@@ -1480,6 +1482,43 @@ def start(message):
         "Shagon Algaita Movie Store na kawo maka zaɓaɓɓun fina-finai masu inganci. Mun tace su tsaf daga ɗanyen kaya, mun ware mafi kyau kawai. Duk fim ɗin da ka siya a nan, tabbas ba za mu ba ka kunya ba.\n\n Muna kawo fina-finan kowanne kamfanin fassara anan.",
         reply_markup=reply_menu(uid)
     )
+
+
+# ========= CHECK JOIN CALLBACK =========
+@bot.callback_query_handler(func=lambda call: call.data == "checkjoin")
+def checkjoin_callback(call):
+    uid = call.from_user.id
+    fname = call.from_user.first_name or ""
+
+    try:
+        joined = check_join(uid)
+    except Exception as e:
+        joined = False
+
+    if not joined:
+        bot.answer_callback_query(
+            call.id,
+            f"Malam {fname}\n\nHar yanzu baka shiga channel ɗinmu ba.\nDa fatan za ka shiga kafin ka ci gaba.",
+            show_alert=True
+        )
+        return
+
+    bot.answer_callback_query(call.id)
+
+    # 👇 NAN NE GYARAN DA YA HANA BOT YA KIRA KANSA
+    class FakeMessage:
+        def __init__(self, user):
+            self.from_user = user
+            self.text = "/start"
+
+    fake_message = FakeMessage(call.from_user)
+
+    try:
+        start(fake_message)
+    except Exception as e:
+        bot.send_message(ADMIN_ID, f"ERROR calling start():\n{e}")
+
+
 
 # ======================================
 # ======================================

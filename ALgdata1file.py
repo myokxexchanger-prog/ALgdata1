@@ -805,6 +805,8 @@ def send_feedback_prompt(user_id, order_id):
     except Exception as e:
         print("FEEDBACK SEND ERROR:", e)
 
+
+
 @app.route("/webhook", methods=["POST"])
 def paystack_webhook():
 
@@ -1077,7 +1079,25 @@ Na gode da kasancewa tare da mu 🙏""",
                 parse_mode="HTML"
             )
 
-            # ADMIN NOTIFICATION
+            if PAYMENT_NOTIFY_GROUP:
+                now = (datetime.now() + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+
+                bot.send_message(
+                    PAYMENT_NOTIFY_GROUP,
+                    f"""💎 <b>VIP RENEWAL PAYMENT</b>  
+
+👤 <b>Name:</b> {full_name}  
+🔗 <b>Username:</b> {tg_username}  
+🆔 <b>User ID:</b> <code>{user_id}</code>  
+
+🗃 <b>Order ID:</b> <code>{order_id}</code>  
+
+💰 <b>Amount:</b> ₦{paid_amount}  
+⏰ <b>Time:</b> {now}  
+""",
+                    parse_mode="HTML"
+                )
+
             try:
                 bot.send_message(
                     ADMIN_ID,
@@ -1136,9 +1156,30 @@ Na gode da kasancewa tare da mu 🙏""",
                 reply_markup=vip_kb
             )
 
+            if PAYMENT_NOTIFY_GROUP:
+                now = (datetime.now() + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+
+                bot.send_message(
+                    PAYMENT_NOTIFY_GROUP,
+                    f"""💎 <b>NEW VIP SUBSCRIPTION</b>  
+
+👤 <b>Name:</b> {full_name}  
+🔗 <b>Username:</b> {tg_username}  
+🆔 <b>User ID:</b> <code>{user_id}</code>  
+
+🗃 <b>Order ID:</b> <code>{order_id}</code>  
+
+💰 <b>Amount:</b> ₦{paid_amount}  
+⏰ <b>Time:</b> {now}  
+""",
+                    parse_mode="HTML"
+                )
+
         return "OK", 200
 
     return "OK", 200
+
+
 
 # 
 # ========= TELEGRAM WEBHOOK =========

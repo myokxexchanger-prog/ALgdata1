@@ -805,7 +805,6 @@ def send_feedback_prompt(user_id, order_id):
     except Exception as e:
         print("FEEDBACK SEND ERROR:", e)
 
-
 @app.route("/webhook", methods=["POST"])
 def paystack_webhook():
 
@@ -974,17 +973,17 @@ def paystack_webhook():
 
         bot.send_message(
             user_id,
-            f"""🎉 <b>PAYMENT SUCCESSFUL</b>
+            f"""🎉 <b>PAYMENT SUCCESSFUL</b>  
 
-👤 <b>Name:</b> {full_name}
-🆔 <b>User ID:</b> <code>{user_id}</code>
+👤 <b>Name:</b> {full_name}  
+🆔 <b>User ID:</b> <code>{user_id}</code>  
 
-🎬 <b>Items:</b> {titles_text}
-🗃 <b>Order ID:</b> <code>{order_id}</code>
+🎬 <b>Items:</b> {titles_text}  
+🗃 <b>Order ID:</b> <code>{order_id}</code>  
 
-💳 <b>Amount Paid:</b> ₦{paid_amount}
+💳 <b>Amount Paid:</b> ₦{paid_amount}  
 
-⬇️ Click the button below to download your files.
+⬇️ Click the button below to download your files.  
 """,
             parse_mode="HTML",
             reply_markup=kb
@@ -992,22 +991,21 @@ def paystack_webhook():
 
         if PAYMENT_NOTIFY_GROUP:
             from datetime import datetime, timedelta
-            now = datetime.now()
-            now_local = now + timedelta(hours=1)
+            now = (datetime.now() + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
 
             bot.send_message(
                 PAYMENT_NOTIFY_GROUP,
-                f"""✅ <b>NEW PAYMENT RECEIVED</b>
+                f"""✅ <b>NEW PAYMENT RECEIVED</b>  
 
-👤 <b>Name:</b> {full_name}
-🔗 <b>Username:</b> {tg_username}
-🆔 <b>User ID:</b> <code>{user_id}</code>
+👤 <b>Name:</b> {full_name}  
+🔗 <b>Username:</b> {tg_username}  
+🆔 <b>User ID:</b> <code>{user_id}</code>  
 
-🎬 <b>Items:</b> {titles_text}
-🗃 <b>Order ID:</b> <code>{order_id}</code>
+🎬 <b>Items:</b> {titles_text}  
+🗃 <b>Order ID:</b> <code>{order_id}</code>  
 
-💰 <b>Amount:</b> ₦{paid_amount}
-⏰ <b>Time:</b> {now_local.strftime("%Y-%m-%d %H:%M:%S")}
+💰 <b>Amount:</b> ₦{paid_amount}  
+⏰ <b>Time:</b> {now}  
 """,
                 parse_mode="HTML"
             )
@@ -1022,13 +1020,12 @@ def paystack_webhook():
         from datetime import datetime, timedelta
 
         start_date = datetime.now()
+        end_date = start_date + (
+            timedelta(minutes=VIP_DURATION_VALUE)
+            if VIP_DURATION_UNIT == "minutes"
+            else timedelta(days=VIP_DURATION_VALUE)
+        )
 
-        if VIP_DURATION_UNIT == "minutes":
-            end_date = start_date + timedelta(minutes=VIP_DURATION_VALUE)
-        else:
-            end_date = start_date + timedelta(days=VIP_DURATION_VALUE)
-
-        # Nigeria display fix only
         start_local = start_date + timedelta(hours=1)
         end_local = end_date + timedelta(hours=1)
 
@@ -1044,18 +1041,18 @@ def paystack_webhook():
 
             cur.execute(
                 """
-                INSERT INTO vip_members   
-                (user_id, order_id, join_date, expire_at, status, warn1_sent, warn2_sent, payment_date)
-                VALUES (%s,%s,%s,%s,'active',FALSE,FALSE,NOW())
-                ON CONFLICT (user_id)
-                DO UPDATE SET
-                    order_id = EXCLUDED.order_id,
-                    join_date = EXCLUDED.join_date,
-                    expire_at = EXCLUDED.expire_at,
-                    status = 'active',
-                    warn1_sent = FALSE,
-                    warn2_sent = FALSE,
-                    payment_date = NOW()
+                INSERT INTO vip_members     
+                (user_id, order_id, join_date, expire_at, status, warn1_sent, warn2_sent, payment_date)  
+                VALUES (%s,%s,%s,%s,'active',FALSE,FALSE,NOW())  
+                ON CONFLICT (user_id)  
+                DO UPDATE SET  
+                    order_id = EXCLUDED.order_id,  
+                    join_date = EXCLUDED.join_date,  
+                    expire_at = EXCLUDED.expire_at,  
+                    status = 'active',  
+                    warn1_sent = FALSE,  
+                    warn2_sent = FALSE,  
+                    payment_date = NOW()  
                 """,
                 (user_id, order_id, start_date, end_date)
             )
@@ -1066,26 +1063,25 @@ def paystack_webhook():
 
             bot.send_message(
                 user_id,
-                f"""💎 <b>AN SABUNTA VIP NAKA</b>
+                f"""💎 <b>AN SABUNTA VIP NAKA</b>  
 
-📅 <b>Ka biya a yau:</b> {start_local.strftime("%Y-%m-%d")}
-⏳ <b>Sake biya aranar ko kafin:</b> {end_local.strftime("%Y-%m-%d")}
+Muna tayaka murnar sabunta biyan VIP ɗinka.  
+
+Domin more samun duk fim ɗin da ranka yake so,  
+ci gaba da ziyartar VIP Group kawai.  
+
+📅 <b>Ka biya a yau:</b> {start_local.strftime("%Y-%m-%d")}  
+⏳ <b>Sake biya aranar ko kafin:</b> {end_local.strftime("%Y-%m-%d")}  
 
 Na gode da kasancewa tare da mu 🙏""",
                 parse_mode="HTML"
             )
 
-            # Admin notification
+            # ADMIN NOTIFICATION
             try:
                 bot.send_message(
                     ADMIN_ID,
-                    f"""🔔 VIP RENEWAL
-
-👤 Name: {full_name}
-🆔 User ID: {user_id}
-💰 Amount: ₦{paid_amount}
-
-Ya sabunta VIP subscription nasa."""
+                    f"🔔 VIP RENEWAL\n\n👤 {full_name}\n🆔 {user_id}\n💰 ₦{paid_amount}\n\nYa sabunta VIP dinsa."
                 )
             except:
                 pass
@@ -1094,18 +1090,18 @@ Ya sabunta VIP subscription nasa."""
 
             cur.execute(
                 """
-                INSERT INTO vip_members   
-                (user_id, order_id, join_date, expire_at, status, warn1_sent, warn2_sent, payment_date)
-                VALUES (%s,%s,NULL,NULL,'active',FALSE,FALSE,NOW())
-                ON CONFLICT (user_id)
-                DO UPDATE SET
-                    order_id = EXCLUDED.order_id,
-                    join_date = NULL,
-                    expire_at = NULL,
-                    status = 'active',
-                    warn1_sent = FALSE,
-                    warn2_sent = FALSE,
-                    payment_date = NOW()
+                INSERT INTO vip_members     
+                (user_id, order_id, join_date, expire_at, status, warn1_sent, warn2_sent, payment_date)  
+                VALUES (%s,%s,NULL,NULL,'active',FALSE,FALSE,NOW())  
+                ON CONFLICT (user_id)  
+                DO UPDATE SET  
+                    order_id = EXCLUDED.order_id,  
+                    join_date = NULL,  
+                    expire_at = NULL,  
+                    status = 'active',  
+                    warn1_sent = FALSE,  
+                    warn2_sent = FALSE,  
+                    payment_date = NOW()  
                 """,
                 (user_id, order_id)
             )
@@ -1124,10 +1120,17 @@ Ya sabunta VIP subscription nasa."""
 
             bot.send_message(
                 user_id,
-                f"""💎 <b>VIP SUBSCRIPTION ACTIVATED</b>
+                f"""💎 <b>VIP SUBSCRIPTION ACTIVATED</b>  
 
-📅 <b>Start Date:</b> {start_local.strftime("%Y-%m-%d")}
-⏳ <b>End Date:</b> {end_local.strftime("%Y-%m-%d")}
+👤 <b>Name:</b> {full_name}  
+🆔 <b>User ID:</b> <code>{user_id}</code>  
+
+💳 <b>Amount Paid:</b> ₦{paid_amount}  
+
+📅 <b>Start Date:</b> {start_local.strftime("%Y-%m-%d")}  
+⏳ <b>End Date:</b> {end_local.strftime("%Y-%m-%d")}  
+
+🔐 Click the button below to join the VIP Group.  
 """,
                 parse_mode="HTML",
                 reply_markup=vip_kb
@@ -1136,7 +1139,6 @@ Ya sabunta VIP subscription nasa."""
         return "OK", 200
 
     return "OK", 200
-
 
 # 
 # ========= TELEGRAM WEBHOOK =========

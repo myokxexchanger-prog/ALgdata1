@@ -1364,7 +1364,7 @@ def vip_group_info(call):
     text = """💎 <b>TSARIN SHIGA VIP GROUP</b>
 ━━━━━━━━━━━━━━━━━━
 🔹 <b>Kudin Rijista:</b> ₦1,500  
-🔹 <b>Subscription:</b> Kwana 30  
+🔹 <b>Subscription:</b> Kwana 33  
 🔹 Ba za a sake biyan kudi ba har sai bayan kwanaki 30
 ━━━━━━━━━━━━━━━━━━
 🔹 Bayan ka biya, za a tura maka <b>1-Time Secure Link</b>  
@@ -1810,7 +1810,7 @@ def vip_warning_system():
 
                         bot.send_message(
                             user_id,
-                            f"⏳ TUNATARWA ZANYI MAKA/n\n"
+                            f"⏳ TUNATARWA ZANYI MAKA\n\n"
                             f"Subscription ɗinka (ALGAITA VIP) zai kare nan da {time_left_value} {unit_text}.\n\n"
                             f"Muna matuƙar godiya da kasancewarka tare da mu ❤️\n"
                             f"Da fatan za ka sabunta kafin lokacin ya ƙare domin cigaba da more VIP group.",
@@ -1855,7 +1855,7 @@ def vip_warning_system():
 
                         bot.send_message(
                             user_id,
-                            f"⚠NAZO NA SANAR DAKAIn\n"
+                            f"⚠NAZO NA SANAR DAKAI\n\n"
                             f"Subscription ɗinka (ALGAITA VIP) zai kare nan da {time_left_value2} {unit_text2}.\n\n"
                             f"Idan ba ka sabunta ba kafin lokacin ya cika, za a cire ka daga VIP group.\n"
                             f"Da fatan za ka sabunta yanzu domin kada a cire ka.",

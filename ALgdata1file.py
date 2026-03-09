@@ -4488,7 +4488,7 @@ import uuid
 from datetime import datetime
 
 @bot.message_handler(
-    content_types=["photo"],
+    content_types=["photo","video"],
     func=lambda m: m.from_user.id in series_sessions
 )
 def series_finalize(m):
@@ -4513,7 +4513,12 @@ def series_finalize(m):
         bot.send_message(uid, "❌ Caption bai dace ba.")
         return
 
-    poster_file_id = m.photo[-1].file_id
+    if m.photo:
+        poster_file_id = m.photo[-1].file_id
+        poster_type = "photo"
+    else:
+        poster_file_id = m.video.file_id
+        poster_type = "video"
 
     # ================= DB CONNECT =================
     try:
@@ -4537,7 +4542,6 @@ def series_finalize(m):
     group_key = str(uuid.uuid4())
     total_files = len(sess["files"])
 
-    # 🔥 ONE CLEAN MESSAGE
     progress_msg = bot.send_message(
         ADMIN_ID,
         f"⏳ Loading... (0/{total_files})"
@@ -4619,7 +4623,6 @@ def series_finalize(m):
         except:
             continue
 
-        # Update progress cleanly
         bot.edit_message_text(
             f"⏳ Loading... ({len(item_ids)}/{total_files})",
             ADMIN_ID,
@@ -4653,18 +4656,26 @@ def series_finalize(m):
             )
         )
 
-        bot.send_photo(
-            CHANNEL,
-            poster_file_id,
-            caption=f"🎬 <b>{title}</b>\n💵Price: ₦{display_price}",
-            parse_mode="HTML",
-            reply_markup=kb
-        )
+        if poster_type == "photo":
+            bot.send_photo(
+                CHANNEL,
+                poster_file_id,
+                caption=f"🎬 <b>{title}</b>\n💵Price: ₦{display_price}",
+                parse_mode="HTML",
+                reply_markup=kb
+            )
+        else:
+            bot.send_video(
+                CHANNEL,
+                poster_file_id,
+                caption=f"🎬 <b>{title}</b>\n💵Price: ₦{display_price}",
+                parse_mode="HTML",
+                reply_markup=kb
+            )
 
     except:
         pass
 
-    # Final message
     bot.edit_message_text(
         f"✅ Completed.\n{len(item_ids)}/{total_files} saved successfully.",
         ADMIN_ID,
@@ -4673,6 +4684,7 @@ def series_finalize(m):
 
     bot.send_message(uid, "🎉 Series an adana dukka lafiya.")
     del series_sessions[uid]
+
 
 
 @bot.callback_query_handler(func=lambda c: True)

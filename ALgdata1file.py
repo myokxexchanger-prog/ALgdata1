@@ -4479,6 +4479,7 @@ def receive_hausa_titles(m):
     bot.send_message(uid, "📸 Yanzu turo poster + caption (suna da farashi)")
 
 
+
 # ===============================
 # FINALIZE (UPLOAD + DB)
 # ===============================
@@ -4488,7 +4489,7 @@ import uuid
 from datetime import datetime
 
 @bot.message_handler(
-    content_types=["photo","video","document"],
+    content_types=["photo"],
     func=lambda m: m.from_user.id in series_sessions
 )
 def series_finalize(m):
@@ -4496,54 +4497,30 @@ def series_finalize(m):
     try:
         uid = m.from_user.id
         data = m.caption or ""
-        bot.send_message(ADMIN_ID, f"DEBUG: handler triggered from {uid}")
     except:
         return
 
     sess = series_sessions.get(uid)
 
-    if not sess:
-        bot.send_message(ADMIN_ID, "DEBUG: session not found")
-        return
-
     if sess.get("stage") != "meta":
-        bot.send_message(ADMIN_ID, f"DEBUG: wrong stage -> {sess.get('stage')}")
         return
-
-    bot.send_message(ADMIN_ID, "DEBUG: stage meta confirmed")
 
     # ================= PARSE CAPTION =================
     try:
         title, raw_price = data.strip().rsplit("\n", 1)
         has_comma = "," in raw_price
         price = int(raw_price.replace(",", "").strip())
-
-        bot.send_message(ADMIN_ID, f"DEBUG: parsed title={title} price={price}")
-
-    except Exception as e:
-        bot.send_message(ADMIN_ID, f"DEBUG: caption parse error -> {e}")
+    except:
         bot.send_message(uid, "❌ Caption bai dace ba.")
         return
 
-    if m.photo:
-        poster_file_id = m.photo[-1].file_id
-        poster_type = "photo"
-    elif m.video:
-        poster_file_id = m.video.file_id
-        poster_type = "video"
-    elif m.document:
-        poster_file_id = m.document.file_id
-        poster_type = "document"
-
-    bot.send_message(ADMIN_ID, f"DEBUG: poster detected -> {poster_type}")
+    poster_file_id = m.photo[-1].file_id
 
     # ================= DB CONNECT =================
     try:
         conn = get_conn()
         cur = conn.cursor()
-        bot.send_message(ADMIN_ID, "DEBUG: DB connected")
-    except Exception as e:
-        bot.send_message(ADMIN_ID, f"DEBUG: DB connection error -> {e}")
+    except:
         return
 
     # ================= CREATE SERIES =================
@@ -4553,11 +4530,7 @@ def series_finalize(m):
             (title, price, poster_file_id)
         )
         series_id = cur.fetchone()[0]
-
-        bot.send_message(ADMIN_ID, f"DEBUG: series created id={series_id}")
-
-    except Exception as e:
-        bot.send_message(ADMIN_ID, f"DEBUG: series insert error -> {e}")
+    except:
         return
 
     item_ids = []
@@ -4565,8 +4538,7 @@ def series_finalize(m):
     group_key = str(uuid.uuid4())
     total_files = len(sess["files"])
 
-    bot.send_message(ADMIN_ID, f"DEBUG: group_key={group_key} files={total_files}")
-
+    # 🔥 ONE CLEAN MESSAGE
     progress_msg = bot.send_message(
         ADMIN_ID,
         f"⏳ Loading... (0/{total_files})"
@@ -4584,16 +4556,26 @@ def series_finalize(m):
                 if e.error_code == 429:
                     retry = int(e.result_json["parameters"]["retry_after"])
 
-                    bot.send_message(ADMIN_ID, f"DEBUG: rate limit {retry}s")
+                    bot.edit_message_text(
+                        f"⏸ Rate limit hit.\nWaiting {retry}s...\n"
+                        f"{len(item_ids)}/{total_files} saved",
+                        ADMIN_ID,
+                        progress_msg.message_id
+                    )
 
                     time.sleep(retry)
+
+                    bot.edit_message_text(
+                        f"⏳ Loading... ({len(item_ids)}/{total_files})",
+                        ADMIN_ID,
+                        progress_msg.message_id
+                    )
+
                     continue
                 else:
-                    bot.send_message(ADMIN_ID, f"DEBUG: telegram error {e}")
                     return None
 
-            except Exception as e:
-                bot.send_message(ADMIN_ID, f"DEBUG: send_document error {e}")
+            except:
                 return None
 
     # ================= UPLOAD LOOP =================
@@ -4606,12 +4588,10 @@ def series_finalize(m):
         )
 
         if not msg:
-            bot.send_message(ADMIN_ID, "DEBUG: upload returned None")
             continue
 
         doc = msg.document or msg.video
         if not doc:
-            bot.send_message(ADMIN_ID, "DEBUG: no document/video in msg")
             continue
 
         try:
@@ -4634,14 +4614,13 @@ def series_finalize(m):
                     STORAGE_CHANNEL
                 )
             )
-
             new_id = cur.fetchone()[0]
             item_ids.append(new_id)
 
-        except Exception as e:
-            bot.send_message(ADMIN_ID, f"DEBUG: item insert error -> {e}")
+        except:
             continue
 
+        # Update progress cleanly
         bot.edit_message_text(
             f"⏳ Loading... ({len(item_ids)}/{total_files})",
             ADMIN_ID,
@@ -4653,16 +4632,14 @@ def series_finalize(m):
     # ================= COMMIT =================
     try:
         conn.commit()
-        bot.send_message(ADMIN_ID, "DEBUG: DB commit success")
-    except Exception as e:
-        bot.send_message(ADMIN_ID, f"DEBUG: commit error -> {e}")
+    except:
+        pass
 
     cur.close()
     conn.close()
 
     # ================= PUBLIC POST =================
     try:
-
         display_price = f"{price:,}" if has_comma else str(price)
 
         kb = InlineKeyboardMarkup()
@@ -4677,31 +4654,18 @@ def series_finalize(m):
             )
         )
 
-        if poster_type == "photo":
+        bot.send_photo(
+            CHANNEL,
+            poster_file_id,
+            caption=f"🎬 <b>{title}</b>\n💵Price: ₦{display_price}",
+            parse_mode="HTML",
+            reply_markup=kb
+        )
 
-            bot.send_photo(
-                CHANNEL,
-                poster_file_id,
-                caption=f"🎬 <b>{title}</b>\n💵Price: ₦{display_price}",
-                parse_mode="HTML",
-                reply_markup=kb
-            )
+    except:
+        pass
 
-        else:
-
-            bot.send_video(
-                CHANNEL,
-                poster_file_id,
-                caption=f"🎬 <b>{title}</b>\n💵Price: ₦{display_price}",
-                parse_mode="HTML",
-                reply_markup=kb
-            )
-
-        bot.send_message(ADMIN_ID, "DEBUG: channel post success")
-
-    except Exception as e:
-        bot.send_message(ADMIN_ID, f"DEBUG: channel post error -> {e}")
-
+    # Final message
     bot.edit_message_text(
         f"✅ Completed.\n{len(item_ids)}/{total_files} saved successfully.",
         ADMIN_ID,

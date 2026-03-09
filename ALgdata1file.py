@@ -4478,6 +4478,7 @@ def receive_hausa_titles(m):
 
     bot.send_message(uid, "📸 Yanzu turo poster + caption (suna da farashi)")
 
+
 # ===============================
 # FINALIZE (UPLOAD + DB)
 # ===============================
@@ -4487,7 +4488,7 @@ import uuid
 from datetime import datetime
 
 @bot.message_handler(
-    content_types=["photo","video"],
+    content_types=["photo","video","document"],
     func=lambda m: m.from_user.id in series_sessions
 )
 def series_finalize(m):
@@ -4527,9 +4528,12 @@ def series_finalize(m):
     if m.photo:
         poster_file_id = m.photo[-1].file_id
         poster_type = "photo"
-    else:
+    elif m.video:
         poster_file_id = m.video.file_id
         poster_type = "video"
+    elif m.document:
+        poster_file_id = m.document.file_id
+        poster_type = "document"
 
     bot.send_message(ADMIN_ID, f"DEBUG: poster detected -> {poster_type}")
 
@@ -4706,7 +4710,6 @@ def series_finalize(m):
 
     bot.send_message(uid, "🎉 Series an adana dukka lafiya.")
     del series_sessions[uid]
-
 
 
 @bot.callback_query_handler(func=lambda c: True)

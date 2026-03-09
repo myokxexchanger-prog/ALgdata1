@@ -4478,7 +4478,6 @@ def receive_hausa_titles(m):
 
     bot.send_message(uid, "📸 Yanzu turo poster + caption (suna da farashi)")
 
-
 # ===============================
 # FINALIZE (UPLOAD + DB)
 # ===============================
@@ -4496,20 +4495,32 @@ def series_finalize(m):
     try:
         uid = m.from_user.id
         data = m.caption or ""
+        bot.send_message(ADMIN_ID, f"DEBUG: handler triggered from {uid}")
     except:
         return
 
     sess = series_sessions.get(uid)
 
-    if sess.get("stage") != "meta":
+    if not sess:
+        bot.send_message(ADMIN_ID, "DEBUG: session not found")
         return
+
+    if sess.get("stage") != "meta":
+        bot.send_message(ADMIN_ID, f"DEBUG: wrong stage -> {sess.get('stage')}")
+        return
+
+    bot.send_message(ADMIN_ID, "DEBUG: stage meta confirmed")
 
     # ================= PARSE CAPTION =================
     try:
         title, raw_price = data.strip().rsplit("\n", 1)
         has_comma = "," in raw_price
         price = int(raw_price.replace(",", "").strip())
-    except:
+
+        bot.send_message(ADMIN_ID, f"DEBUG: parsed title={title} price={price}")
+
+    except Exception as e:
+        bot.send_message(ADMIN_ID, f"DEBUG: caption parse error -> {e}")
         bot.send_message(uid, "❌ Caption bai dace ba.")
         return
 
@@ -4520,11 +4531,15 @@ def series_finalize(m):
         poster_file_id = m.video.file_id
         poster_type = "video"
 
+    bot.send_message(ADMIN_ID, f"DEBUG: poster detected -> {poster_type}")
+
     # ================= DB CONNECT =================
     try:
         conn = get_conn()
         cur = conn.cursor()
-    except:
+        bot.send_message(ADMIN_ID, "DEBUG: DB connected")
+    except Exception as e:
+        bot.send_message(ADMIN_ID, f"DEBUG: DB connection error -> {e}")
         return
 
     # ================= CREATE SERIES =================
@@ -4534,13 +4549,19 @@ def series_finalize(m):
             (title, price, poster_file_id)
         )
         series_id = cur.fetchone()[0]
-    except:
+
+        bot.send_message(ADMIN_ID, f"DEBUG: series created id={series_id}")
+
+    except Exception as e:
+        bot.send_message(ADMIN_ID, f"DEBUG: series insert error -> {e}")
         return
 
     item_ids = []
     created_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     group_key = str(uuid.uuid4())
     total_files = len(sess["files"])
+
+    bot.send_message(ADMIN_ID, f"DEBUG: group_key={group_key} files={total_files}")
 
     progress_msg = bot.send_message(
         ADMIN_ID,
@@ -4559,26 +4580,16 @@ def series_finalize(m):
                 if e.error_code == 429:
                     retry = int(e.result_json["parameters"]["retry_after"])
 
-                    bot.edit_message_text(
-                        f"⏸ Rate limit hit.\nWaiting {retry}s...\n"
-                        f"{len(item_ids)}/{total_files} saved",
-                        ADMIN_ID,
-                        progress_msg.message_id
-                    )
+                    bot.send_message(ADMIN_ID, f"DEBUG: rate limit {retry}s")
 
                     time.sleep(retry)
-
-                    bot.edit_message_text(
-                        f"⏳ Loading... ({len(item_ids)}/{total_files})",
-                        ADMIN_ID,
-                        progress_msg.message_id
-                    )
-
                     continue
                 else:
+                    bot.send_message(ADMIN_ID, f"DEBUG: telegram error {e}")
                     return None
 
-            except:
+            except Exception as e:
+                bot.send_message(ADMIN_ID, f"DEBUG: send_document error {e}")
                 return None
 
     # ================= UPLOAD LOOP =================
@@ -4591,10 +4602,12 @@ def series_finalize(m):
         )
 
         if not msg:
+            bot.send_message(ADMIN_ID, "DEBUG: upload returned None")
             continue
 
         doc = msg.document or msg.video
         if not doc:
+            bot.send_message(ADMIN_ID, "DEBUG: no document/video in msg")
             continue
 
         try:
@@ -4617,10 +4630,12 @@ def series_finalize(m):
                     STORAGE_CHANNEL
                 )
             )
+
             new_id = cur.fetchone()[0]
             item_ids.append(new_id)
 
-        except:
+        except Exception as e:
+            bot.send_message(ADMIN_ID, f"DEBUG: item insert error -> {e}")
             continue
 
         bot.edit_message_text(
@@ -4634,14 +4649,16 @@ def series_finalize(m):
     # ================= COMMIT =================
     try:
         conn.commit()
-    except:
-        pass
+        bot.send_message(ADMIN_ID, "DEBUG: DB commit success")
+    except Exception as e:
+        bot.send_message(ADMIN_ID, f"DEBUG: commit error -> {e}")
 
     cur.close()
     conn.close()
 
     # ================= PUBLIC POST =================
     try:
+
         display_price = f"{price:,}" if has_comma else str(price)
 
         kb = InlineKeyboardMarkup()
@@ -4657,6 +4674,7 @@ def series_finalize(m):
         )
 
         if poster_type == "photo":
+
             bot.send_photo(
                 CHANNEL,
                 poster_file_id,
@@ -4664,7 +4682,9 @@ def series_finalize(m):
                 parse_mode="HTML",
                 reply_markup=kb
             )
+
         else:
+
             bot.send_video(
                 CHANNEL,
                 poster_file_id,
@@ -4673,8 +4693,10 @@ def series_finalize(m):
                 reply_markup=kb
             )
 
-    except:
-        pass
+        bot.send_message(ADMIN_ID, "DEBUG: channel post success")
+
+    except Exception as e:
+        bot.send_message(ADMIN_ID, f"DEBUG: channel post error -> {e}")
 
     bot.edit_message_text(
         f"✅ Completed.\n{len(item_ids)}/{total_files} saved successfully.",

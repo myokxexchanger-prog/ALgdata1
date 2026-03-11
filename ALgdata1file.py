@@ -29,6 +29,278 @@ def get_conn():
 conn = psycopg2.connect(DATABASE_URL)
 conn.autocommit = True
 cur = conn.cursor()
+# ==========================================
+# AUTO DB FIX: ENSURE invite_link COLUMN
+# ==========================================
+def ensure_vip_invite_column():
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        # Check if column exists
+        cur.execute("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name='vip_members'
+            AND column_name='invite_link'
+        """)
+        exists = cur.fetchone()
+
+        if not exists:
+            cur.execute("""
+                ALTER TABLE vip_members
+                ADD COLUMN invite_link TEXT DEFAULT NULL
+            """)
+            conn.commit()
+
+            try:
+                bot.send_message(ADMIN_ID, "✅ invite_link column created successfully.")
+            except:
+                pass
+        else:
+            try:
+                bot.send_message(ADMIN_ID, "ℹ invite_link column already exists.")
+            except:
+                pass
+
+        cur.close()
+        conn.close()
+
+    except Exception as e:
+        try:
+            bot.send_message(ADMIN_ID, f"❌ DB AUTO FIX ERROR:\n{e}")
+        except:
+            pass
+
+
+# Run immediately on startup
+ensure_vip_invite_column()
+
+
+# ============================================
+# VIP TABLE AUTO STRUCTURE FIX (RUN ON START)
+# ============================================
+
+def ensure_vip_table_structure():
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        print("🔍 Checking VIP table structure...")
+
+        # ================= CHECK TABLE =================
+        cur.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = 'vip_members'
+            )
+        """)
+        table_exists = cur.fetchone()[0]
+
+        if not table_exists:
+            print("⚠️ vip_members table not found. Creating it...")
+
+            cur.execute("""
+                CREATE TABLE vip_members (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT UNIQUE NOT NULL,
+                    order_id TEXT,
+                    join_date TIMESTAMP,
+                    expire_at TIMESTAMP,
+                    status TEXT DEFAULT 'active',
+                    warn1_sent BOOLEAN DEFAULT FALSE,
+                    warn2_sent BOOLEAN DEFAULT FALSE,
+                    payment_date TIMESTAMP DEFAULT NOW()
+                )
+            """)
+
+            conn.commit()
+            print("✅ vip_members table created.")
+
+        else:
+            print("✅ vip_members table exists. Checking columns...")
+
+            # ================= CHECK COLUMNS =================
+            cur.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name='vip_members'
+            """)
+            existing_cols = [r[0] for r in cur.fetchall()]
+
+            def add_column(query, col_name):
+                if col_name not in existing_cols:
+                    print(f"⚠️ Adding missing column: {col_name}")
+                    cur.execute(query)
+
+            add_column(
+                "ALTER TABLE vip_members ADD COLUMN order_id TEXT",
+                "order_id"
+            )
+
+            add_column(
+                "ALTER TABLE vip_members ADD COLUMN join_date TIMESTAMP",
+                "join_date"
+            )
+
+            add_column(
+                "ALTER TABLE vip_members ADD COLUMN expire_at TIMESTAMP",
+                "expire_at"
+            )
+
+            add_column(
+                "ALTER TABLE vip_members ADD COLUMN status TEXT DEFAULT 'active'",
+                "status"
+            )
+
+            add_column(
+                "ALTER TABLE vip_members ADD COLUMN warn1_sent BOOLEAN DEFAULT FALSE",
+                "warn1_sent"
+            )
+
+            add_column(
+                "ALTER TABLE vip_members ADD COLUMN warn2_sent BOOLEAN DEFAULT FALSE",
+                "warn2_sent"
+            )
+
+            add_column(
+                "ALTER TABLE vip_members ADD COLUMN payment_date TIMESTAMP DEFAULT NOW()",
+                "payment_date"
+            )
+
+            conn.commit()
+            print("✅ VIP table structure verified.")
+
+        cur.close()
+        conn.close()
+
+    except Exception as e:
+        print("❌ VIP STRUCTURE CHECK FAILED:", e)
+
+
+# Run automatically when app starts
+ensure_vip_table_structure()
+
+
+# =============================
+# ENSURE VIP MEMBERS TABLE
+# =============================
+def ensure_vip_members_table():
+    try:
+        # 1️⃣ Create table if not exists
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS vip_members (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT UNIQUE NOT NULL
+            )
+        """)
+
+        # 2️⃣ Ensure order_id column
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name='vip_members'
+            AND column_name='order_id'
+        """)
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE vip_members ADD COLUMN order_id TEXT")
+
+        # 3️⃣ Ensure join_date column
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name='vip_members'
+            AND column_name='join_date'
+        """)
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE vip_members ADD COLUMN join_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+
+        # 4️⃣ Ensure expire_at column
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name='vip_members'
+            AND column_name='expire_at'
+        """)
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE vip_members ADD COLUMN expire_at TIMESTAMP")
+
+        # 5️⃣ Ensure status column
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name='vip_members'
+            AND column_name='status'
+        """)
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE vip_members ADD COLUMN status VARCHAR(20) DEFAULT 'active'")
+
+        print("✅ vip_members table structure verified")
+
+    except Exception as e:
+        print("❌ VIP MEMBERS MIGRATION ERROR:", e)
+
+
+# 🔥 Run at startup
+ensure_vip_members_table()
+# =============================
+# ENSURE VIP MEMBERS TABLE
+# =============================
+def ensure_vip_members_table():
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS vip_members (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT UNIQUE NOT NULL
+            )
+        """)
+
+        # Helper function
+        def ensure_column(column_name, column_type):
+            cur.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name='vip_members'
+                AND column_name=%s
+            """, (column_name,))
+            if not cur.fetchone():
+                cur.execute(f"ALTER TABLE vip_members ADD COLUMN {column_name} {column_type}")
+
+        # Required columns
+        ensure_column("order_id", "TEXT")
+        ensure_column("join_date", "TIMESTAMP")
+        ensure_column("expire_at", "TIMESTAMP")
+        ensure_column("status", "VARCHAR(20) DEFAULT 'active'")
+        ensure_column("warn1_sent", "BOOLEAN DEFAULT FALSE")
+        ensure_column("warn2_sent", "BOOLEAN DEFAULT FALSE")
+        ensure_column("payment_date", "TIMESTAMP")
+
+        print("✅ vip_members table structure verified")
+
+    except Exception as e:
+        print("❌ VIP MEMBERS MIGRATION ERROR:", e)
+
+# =============================
+# ENSURE ORDERS TABLE STRUCTURE
+# =============================
+def ensure_orders_columns():
+    try:
+        cur.execute("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name='orders'
+              AND column_name='type'
+        """)
+        exists = cur.fetchone()
+
+        if not exists:
+            cur.execute("ALTER TABLE orders ADD COLUMN type VARCHAR(20) DEFAULT 'film'")
+            print("✅ Column 'type' added successfully")
+        else:
+            print("✅ Column 'type' already exists")
+
+    except Exception as e:
+        print("❌ MIGRATION ERROR:", e)
+
+
+# 🔥 Run migration once at startup
+ensure_orders_columns()
+
 
 
 

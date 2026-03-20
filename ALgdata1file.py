@@ -1983,6 +1983,116 @@ def customer_pagination(c):
 
 
 
+# ================= EID BROADCAST SYSTEM =================
+from telebot.apihelper import ApiTelegramException
+import time
+
+EID_MESSAGE = """🌙✨ Barka da Sallah!
+
+Allah ya karɓi ibadunmu 🤲
+
+Mun gode da goyon bayan ku ❤️
+
+🎉 Ga wani albishir! A wannan Sallah ba za mu barku haka ba — dole sai mun faranta ran wasu daga cikin ku saboda yadda kuka dage da siyan fina-finai a gurinmu 🎬
+
+🎁 Kyaututtuka na kuɗi za su shiga kai tsaye wallet ɗinku 💰 Yawan siyayyarka zai ƙayyade girman kyautarka 😉
+
+— Algaita Movie Store  
+CEO: Nazifi Ibrahim  
+🤖 @CEOalgaitabot
+"""
+
+
+@bot.message_handler(commands=["sending"])
+def send_eid_broadcast(msg):
+
+    if msg.from_user.id != ADMIN_ID:
+        return
+
+    bot.reply_to(msg, "⏳ Loading... Ana tura sakonni...")
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    try:
+        # ================= GET ALL USERS (PAID + UNPAID) =================
+        cur.execute("""
+            SELECT DISTINCT user_id FROM orders
+        """)
+        rows = cur.fetchall()
+
+        users = [r[0] for r in rows]
+
+    except:
+        bot.send_message(msg.chat.id, "❌ Failed to fetch users.")
+        return
+
+    finally:
+        cur.close()
+        conn.close()
+
+    if not users:
+        bot.send_message(msg.chat.id, "❌ No users found.")
+        return
+
+    sent = 0
+    failed = 0
+
+    # ================= SAFE SEND FUNCTION =================
+    def safe_send(user_id):
+
+        while True:
+            try:
+                bot.send_message(user_id, EID_MESSAGE)
+                return True
+
+            except ApiTelegramException as e:
+
+                # ===== RATE LIMIT =====
+                if e.error_code == 429:
+                    try:
+                        retry = int(e.result_json["parameters"]["retry_after"])
+                    except:
+                        retry = 30
+
+                    time.sleep(retry)
+                    continue
+
+                # ===== BLOCKED / FORBIDDEN =====
+                elif e.error_code == 403:
+                    return False
+
+                else:
+                    time.sleep(3)
+                    return False
+
+            except:
+                time.sleep(3)
+                return False
+
+    # ================= LOOP =================
+    for user_id in users:
+
+        ok = safe_send(user_id)
+
+        if ok:
+            sent += 1
+        else:
+            failed += 1
+
+        time.sleep(2)  # SAFE DELAY
+
+    # ================= FINAL REPORT =================
+    bot.send_message(
+        msg.chat.id,
+        f"""✅ BROADCAST COMPLETED
+
+📤 Sent: {sent}
+❌ Failed: {failed}
+👥 Total: {len(users)}
+"""
+    )
+
 # ================= USERS COUNTER SYSTEM =================
 @bot.message_handler(commands=["users"])
 def count_all_users(msg):

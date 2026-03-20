@@ -1684,6 +1684,261 @@ def deliver_items(call):
     send_feedback_prompt(user_id, order_id)
 
 
+# ================= CUSTOMER PAGINATION SYSTEM =================
+CUSTOMER_CACHE = {}
+
+@bot.message_handler(commands=["customers"])
+def customers_handler(msg):
+
+    if msg.from_user.id != ADMIN_ID:
+        return
+
+    text = msg.text.lower()
+
+    hide = "hide" in text
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT 
+            o.user_id,
+            SUM(o.amount) as total_paid,
+            COUNT(o.id) as total_orders
+        FROM orders o
+        WHERE o.paid = 1
+        GROUP BY o.user_id
+        ORDER BY total_paid DESC
+    """)
+
+    rows = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    if not rows:
+        bot.reply_to(msg, "No customers found.")
+        return
+
+    # STORE CACHE
+    CUSTOMER_CACHE[msg.from_user.id] = {
+        "data": rows,
+        "hide": hide
+    }
+
+    send_customer_page(msg.chat.id, msg.from_user.id, 0)
+
+
+# ================= PAGE SENDER =================
+def send_customer_page(chat_id, admin_id, page):
+
+    data = CUSTOMER_CACHE.get(admin_id)
+
+    if not data:
+        return
+
+    rows = data["data"]
+    hide = data["hide"]
+
+    per_page = 20
+    start = page * per_page
+    end = start + per_page
+
+    chunk = rows[start:end]
+
+    if not chunk:
+        return
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    result = []
+    rank = start + 1
+
+    for user_id, total_paid, total_orders in chunk:
+
+        # ===== NAME FROM DB =====
+        cur.execute("""
+            SELECT first_name, last_name
+            FROM visited_users
+            WHERE user_id=%s
+        """, (user_id,))
+        u = cur.fetchone()
+
+        if u and (u[0] or u[1]):
+            name = f"{u[0] or ''} {u[1] or ''}".strip()
+        else:
+            # ===== TELEGRAM FALLBACK =====
+            try:
+                chat = bot.get_chat(user_id)
+                name = f"{chat.first_name or ''} {chat.last_name or ''}".strip()
+            except:
+                name = "Customer"
+
+        # ===== TOP FORMAT =====
+        if rank <= 3:
+            prefix = f"🏆 TOP {rank}"
+        else:
+            prefix = f"{rank}."
+
+        paid_text = "****" if hide else f"₦{int(total_paid)}"
+
+        text = (
+            f"{prefix} {name}\n"
+            f"Wallet ID: <code>{user_id}</code>\n"
+            f"Total Paid: {paid_text}\n"
+            f"Orders: {total_orders}"
+        )
+
+        result.append(text)
+        rank += 1
+
+    cur.close()
+    conn.close()
+
+    final_text = "\n__________\n".join(result)
+
+    # ===== BUTTONS =====
+    kb = InlineKeyboardMarkup()
+
+    btns = []
+
+    if page > 0:
+        btns.append(
+            InlineKeyboardButton(
+                "⬅️ Back",
+                callback_data=f"custpage:{page-1}"
+            )
+        )
+
+    if end < len(rows):
+        btns.append(
+            InlineKeyboardButton(
+                "➡️ Next",
+                callback_data=f"custpage:{page+1}"
+            )
+        )
+
+    if btns:
+        kb.row(*btns)
+
+    bot.send_message(
+        chat_id,
+        final_text,
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+
+
+# ================= CALLBACK =================
+@bot.callback_query_handler(func=lambda c: c.data.startswith("custpage:"))
+def customer_pagination(c):
+
+    if c.from_user.id != ADMIN_ID:
+        return
+
+    try:
+        page = int(c.data.split(":")[1])
+    except:
+        return
+
+    data = CUSTOMER_CACHE.get(c.from_user.id)
+    if not data:
+        return
+
+    rows = data["data"]
+    hide = data["hide"]
+
+    per_page = 20
+    start = page * per_page
+    end = start + per_page
+
+    chunk = rows[start:end]
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    result = []
+    rank = start + 1
+
+    for user_id, total_paid, total_orders in chunk:
+
+        cur.execute("""
+            SELECT first_name, last_name
+            FROM visited_users
+            WHERE user_id=%s
+        """, (user_id,))
+        u = cur.fetchone()
+
+        if u and (u[0] or u[1]):
+            name = f"{u[0] or ''} {u[1] or ''}".strip()
+        else:
+            try:
+                chat = bot.get_chat(user_id)
+                name = f"{chat.first_name or ''} {chat.last_name or ''}".strip()
+            except:
+                name = "Customer"
+
+        if rank <= 3:
+            prefix = f"🏆 TOP {rank}"
+        else:
+            prefix = f"{rank}."
+
+        paid_text = "****" if hide else f"₦{int(total_paid)}"
+
+        text = (
+            f"{prefix} {name}\n"
+            f"Wallet ID: <code>{user_id}</code>\n"
+            f"Total Paid: {paid_text}\n"
+            f"Orders: {total_orders}"
+        )
+
+        result.append(text)
+        rank += 1
+
+    cur.close()
+    conn.close()
+
+    final_text = "\n__________\n".join(result)
+
+    kb = InlineKeyboardMarkup()
+
+    btns = []
+
+    if page > 0:
+        btns.append(
+            InlineKeyboardButton(
+                "⬅️ Back",
+                callback_data=f"custpage:{page-1}"
+            )
+        )
+
+    if end < len(rows):
+        btns.append(
+            InlineKeyboardButton(
+                "➡️ Next",
+                callback_data=f"custpage:{page+1}"
+            )
+        )
+
+    if btns:
+        kb.row(*btns)
+
+    try:
+        bot.edit_message_text(
+            final_text,
+            c.message.chat.id,
+            c.message.message_id,
+            parse_mode="HTML",
+            reply_markup=kb
+        )
+    except:
+        pass
+
+    bot.answer_callback_query(c.id)
+
+
+
 @bot.callback_query_handler(func=lambda c: c.data == "vipgroup")
 def vip_group_info(call):
 

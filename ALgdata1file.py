@@ -1781,6 +1781,7 @@ Your wallet has been reduced successfully.""",
         wallet_conn.close()
 
 
+
 # ================= CUSTOMER PAGINATION SYSTEM =================
 CUSTOMER_CACHE = {}
 
@@ -1834,7 +1835,7 @@ def build_customer_text(admin_id, page):
     rows = data["data"]
     hide = data["hide"]
 
-    per_page = 20
+    per_page = 15
     total_pages = (len(rows) - 1) // per_page
 
     start = page * per_page
@@ -1845,7 +1846,6 @@ def build_customer_text(admin_id, page):
     cur = conn.cursor()
 
     result = []
-    temp = []
     rank = start + 1
 
     for user_id, total_paid, total_orders in chunk:
@@ -1867,31 +1867,35 @@ def build_customer_text(admin_id, page):
             except:
                 name = "Customer"
 
-        # ===== FORMAT =====
+        # ===== PREFIX =====
         if rank <= 3:
             prefix = f"🏆{rank}"
         else:
             prefix = f"{rank}"
 
-        paid_text = "****" if hide else f"₦{int(total_paid)}"
+        # ===== FORMAT (SHORT AS YOU WANT) =====
+        if hide:
+            block = (
+                f"{prefix}. 👤 {name}\n"
+                f"📦 Orders: {total_orders}\n"
+                f"🆔 Wallet ID: <code>{user_id}</code>"
+            )
+        else:
+            block = (
+                f"{prefix}. 👤 {name}\n"
+                f"💰 ₦{int(total_paid)}\n"
+                f"📦 Orders: {total_orders}\n"
+                f"🆔 Wallet ID: <code>{user_id}</code>"
+            )
 
-        block = (
-            f"{prefix}. {name}\n"
-            f"🆔 <code>{user_id}</code>\n"
-            f"💰 {paid_text} | 📦 {total_orders}"
-        )
-
-        temp.append(block)
-
-        # ===== 2 PER ROW =====
-        if len(temp) == 2:
-            result.append("     |     ".join(temp))
-            temp = []
+        result.append(block)
+        result.append("__________")
 
         rank += 1
 
-    if temp:
-        result.append(temp[0])
+    # remove last line
+    if result and result[-1] == "__________":
+        result.pop()
 
     cur.close()
     conn.close()
@@ -1941,7 +1945,7 @@ def customer_pagination(c):
 
     rows = data["data"]
 
-    per_page = 20
+    per_page = 15
     total_pages = (len(rows) - 1) // per_page
 
     # ===== POPUP ALERT =====

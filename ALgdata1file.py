@@ -1684,6 +1684,102 @@ def deliver_items(call):
     send_feedback_prompt(user_id, order_id)
 
 
+# ================= ADMIN REMOVE MONEY FROM WALLET =================
+@bot.message_handler(commands=["rage"])
+def admin_remove_money(msg):
+
+    user_id = msg.from_user.id
+
+    # ===== ADMIN CHECK =====
+    if user_id != ADMIN_ID:
+        bot.reply_to(msg, "❌ You are not authorized to use this command.")
+        return
+
+    try:
+        parts = msg.text.split()
+
+        if len(parts) < 2:
+            bot.reply_to(msg, "Usage: /rage 500")
+            return
+
+        amount = int(parts[1])
+
+        if amount <= 0:
+            bot.reply_to(msg, "❌ Invalid amount.")
+            return
+
+    except:
+        bot.reply_to(msg, "❌ Invalid format.\nUse: /rage 500")
+        return
+
+    # ===== DB =====
+    wallet_conn = get_wallet_conn()
+    wallet_cur = wallet_conn.cursor()
+
+    try:
+
+        # ===== CHECK CURRENT BALANCE =====
+        wallet_cur.execute(
+            "SELECT balance FROM wallet_balance WHERE user_id=%s",
+            (user_id,)
+        )
+        row = wallet_cur.fetchone()
+
+        current_balance = int(row[0]) if row else 0
+
+        if current_balance < amount:
+            bot.reply_to(
+                msg,
+                f"❌ Insufficient balance.\n\nYour Balance: ₦{current_balance}"
+            )
+            return
+
+        # ===== DEDUCT BALANCE =====
+        wallet_cur.execute(
+            """
+            UPDATE wallet_balance
+            SET balance = balance - %s,
+                updated_at = NOW()
+            WHERE user_id=%s
+            """,
+            (amount, user_id)
+        )
+
+        # ===== SAVE TRANSACTION =====
+        import time
+        ref = f"debit_{user_id}_{int(time.time())}"
+
+        wallet_cur.execute(
+            """
+            INSERT INTO wallet_transactions
+            (user_id, amount, type, reference, description)
+            VALUES (%s,%s,'debit',%s,'Admin Wallet Debit')
+            """,
+            (user_id, amount, ref)
+        )
+
+        wallet_conn.commit()
+
+        # ===== SUCCESS MESSAGE =====
+        bot.reply_to(
+            msg,
+            f"""💸 <b>WALLET DEBIT SUCCESSFUL</b>
+
+➖ Amount Removed: ₦{amount}
+🆔 Wallet ID: <code>{user_id}</code>
+
+Your wallet has been reduced successfully.""",
+            parse_mode="HTML"
+        )
+
+    except:
+        wallet_conn.rollback()
+        bot.reply_to(msg, "❌ Failed to remove money.")
+
+    finally:
+        wallet_cur.close()
+        wallet_conn.close()
+
 # ================= CUSTOMER PAGINATION SYSTEM =================
 CUSTOMER_CACHE = {}
 

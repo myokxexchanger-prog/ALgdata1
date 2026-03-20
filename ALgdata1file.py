@@ -429,6 +429,25 @@ ON wallet_withdrawals(user_id)
 # DATABASE TABLES (SAFE)
 # =========================
 
+
+# ================= ADMIN NOTES TABLE =================
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS admin_notes (
+    id SERIAL PRIMARY KEY,
+    admin_id BIGINT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# ===== INDEX domin saurin fetch =====
+cur.execute("""
+CREATE INDEX IF NOT EXISTS idx_admin_notes_admin
+ON admin_notes(admin_id)
+""")
+
+
 # -------- MOVIES --------
 cur.execute("""
 CREATE TABLE IF NOT EXISTS movies (
@@ -2234,6 +2253,79 @@ def send_eid_broadcast(msg):
 ❌ Failed: {failed}
 👥 Total: {len(users)}
 """
+    )
+
+
+# ================= ADMIN SAVE SYSTEM =================
+
+# -------- SAVE --------
+@bot.message_handler(commands=["save"])
+def save_note(msg):
+
+    if msg.from_user.id != ADMIN_ID:
+        return
+
+    # REMOVE COMMAND ONLY (keep multi-line)
+    text = msg.text.replace("/save", "", 1).strip()
+
+    if not text:
+        bot.reply_to(msg, "❌ Rubuta abin da zaka ajiye.")
+        return
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    try:
+        cur.execute(
+            "INSERT INTO admin_notes (admin_id, content) VALUES (%s,%s)",
+            (msg.from_user.id, text)
+        )
+        conn.commit()
+
+        bot.reply_to(msg, "✅ An ajiye.")
+
+    except:
+        conn.rollback()
+        bot.reply_to(msg, "❌ Failed.")
+
+    finally:
+        cur.close()
+        conn.close()
+
+
+# -------- VIEW ALL --------
+@bot.message_handler(commands=["mysave"])
+def view_notes(msg):
+
+    if msg.from_user.id != ADMIN_ID:
+        return
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT content FROM admin_notes WHERE admin_id=%s ORDER BY id DESC",
+        (msg.from_user.id,)
+    )
+    rows = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    if not rows:
+        bot.reply_to(msg, "📭 Babu komai a ajiya.")
+        return
+
+    result = []
+
+    for (content,) in rows:
+        result.append(content)
+
+    final_text = "\n__________\n".join(result)
+
+    bot.send_message(
+        msg.chat.id,
+        final_text
     )
 
 # ================= USERS COUNTER SYSTEM =================

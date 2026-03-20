@@ -1780,18 +1780,18 @@ Your wallet has been reduced successfully.""",
         wallet_cur.close()
         wallet_conn.close()
 
+
 # ================= CUSTOMER PAGINATION SYSTEM =================
 CUSTOMER_CACHE = {}
 
-@bot.message_handler(commands=["customers"])
+@bot.message_handler(commands=["customers", "customershide"])
 def customers_handler(msg):
 
     if msg.from_user.id != ADMIN_ID:
         return
 
     text = msg.text.lower()
-
-    hide = "hide" in text
+    hide = msg.text.startswith("/customershide") or "hide" in text
 
     conn = get_conn()
     cur = conn.cursor()
@@ -1813,10 +1813,9 @@ def customers_handler(msg):
     conn.close()
 
     if not rows:
-        bot.reply_to(msg, "No customers found.")
+        bot.reply_to(msg, "❌ No customers found.")
         return
 
-    # STORE CACHE
     CUSTOMER_CACHE[msg.from_user.id] = {
         "data": rows,
         "hide": hide
@@ -1825,35 +1824,33 @@ def customers_handler(msg):
     send_customer_page(msg.chat.id, msg.from_user.id, 0)
 
 
-# ================= PAGE SENDER =================
-def send_customer_page(chat_id, admin_id, page):
+# ================= PAGE RENDER =================
+def build_customer_text(admin_id, page):
 
     data = CUSTOMER_CACHE.get(admin_id)
-
     if not data:
-        return
+        return None, None
 
     rows = data["data"]
     hide = data["hide"]
 
     per_page = 20
+    total_pages = (len(rows) - 1) // per_page
+
     start = page * per_page
     end = start + per_page
-
     chunk = rows[start:end]
-
-    if not chunk:
-        return
 
     conn = get_conn()
     cur = conn.cursor()
 
     result = []
+    temp = []
     rank = start + 1
 
     for user_id, total_paid, total_orders in chunk:
 
-        # ===== NAME FROM DB =====
+        # ===== NAME =====
         cur.execute("""
             SELECT first_name, last_name
             FROM visited_users
@@ -1864,63 +1861,63 @@ def send_customer_page(chat_id, admin_id, page):
         if u and (u[0] or u[1]):
             name = f"{u[0] or ''} {u[1] or ''}".strip()
         else:
-            # ===== TELEGRAM FALLBACK =====
             try:
                 chat = bot.get_chat(user_id)
                 name = f"{chat.first_name or ''} {chat.last_name or ''}".strip()
             except:
                 name = "Customer"
 
-        # ===== TOP FORMAT =====
+        # ===== FORMAT =====
         if rank <= 3:
-            prefix = f"🏆 TOP {rank}"
+            prefix = f"🏆{rank}"
         else:
-            prefix = f"{rank}."
+            prefix = f"{rank}"
 
         paid_text = "****" if hide else f"₦{int(total_paid)}"
 
-        text = (
-            f"{prefix} {name}\n"
-            f"Wallet ID: <code>{user_id}</code>\n"
-            f"Total Paid: {paid_text}\n"
-            f"Orders: {total_orders}"
+        block = (
+            f"{prefix}. {name}\n"
+            f"🆔 <code>{user_id}</code>\n"
+            f"💰 {paid_text} | 📦 {total_orders}"
         )
 
-        result.append(text)
+        temp.append(block)
+
+        # ===== 2 PER ROW =====
+        if len(temp) == 2:
+            result.append("     |     ".join(temp))
+            temp = []
+
         rank += 1
+
+    if temp:
+        result.append(temp[0])
 
     cur.close()
     conn.close()
 
-    final_text = "\n__________\n".join(result)
+    text = "\n".join(result)
 
-    # ===== BUTTONS =====
     kb = InlineKeyboardMarkup()
+    kb.row(
+        InlineKeyboardButton("⬅️ Back", callback_data=f"custpage:{page-1}"),
+        InlineKeyboardButton("➡️ Next", callback_data=f"custpage:{page+1}")
+    )
 
-    btns = []
+    return text, kb
 
-    if page > 0:
-        btns.append(
-            InlineKeyboardButton(
-                "⬅️ Back",
-                callback_data=f"custpage:{page-1}"
-            )
-        )
 
-    if end < len(rows):
-        btns.append(
-            InlineKeyboardButton(
-                "➡️ Next",
-                callback_data=f"custpage:{page+1}"
-            )
-        )
+# ================= SEND FIRST =================
+def send_customer_page(chat_id, admin_id, page):
 
-    if btns:
-        kb.row(*btns)
+    text, kb = build_customer_text(admin_id, page)
+
+    if not text:
+        return
 
     bot.send_message(
         chat_id,
-        final_text,
+        text,
         parse_mode="HTML",
         reply_markup=kb
     )
@@ -1943,86 +1940,35 @@ def customer_pagination(c):
         return
 
     rows = data["data"]
-    hide = data["hide"]
 
     per_page = 20
-    start = page * per_page
-    end = start + per_page
+    total_pages = (len(rows) - 1) // per_page
 
-    chunk = rows[start:end]
-
-    conn = get_conn()
-    cur = conn.cursor()
-
-    result = []
-    rank = start + 1
-
-    for user_id, total_paid, total_orders in chunk:
-
-        cur.execute("""
-            SELECT first_name, last_name
-            FROM visited_users
-            WHERE user_id=%s
-        """, (user_id,))
-        u = cur.fetchone()
-
-        if u and (u[0] or u[1]):
-            name = f"{u[0] or ''} {u[1] or ''}".strip()
-        else:
-            try:
-                chat = bot.get_chat(user_id)
-                name = f"{chat.first_name or ''} {chat.last_name or ''}".strip()
-            except:
-                name = "Customer"
-
-        if rank <= 3:
-            prefix = f"🏆 TOP {rank}"
-        else:
-            prefix = f"{rank}."
-
-        paid_text = "****" if hide else f"₦{int(total_paid)}"
-
-        text = (
-            f"{prefix} {name}\n"
-            f"Wallet ID: <code>{user_id}</code>\n"
-            f"Total Paid: {paid_text}\n"
-            f"Orders: {total_orders}"
+    # ===== POPUP ALERT =====
+    if page < 0:
+        bot.answer_callback_query(
+            c.id,
+            "🚫 Babu page a baya",
+            show_alert=True
         )
+        return
 
-        result.append(text)
-        rank += 1
-
-    cur.close()
-    conn.close()
-
-    final_text = "\n__________\n".join(result)
-
-    kb = InlineKeyboardMarkup()
-
-    btns = []
-
-    if page > 0:
-        btns.append(
-            InlineKeyboardButton(
-                "⬅️ Back",
-                callback_data=f"custpage:{page-1}"
-            )
+    if page > total_pages:
+        bot.answer_callback_query(
+            c.id,
+            "🚫 Babu wani page a gaba",
+            show_alert=True
         )
+        return
 
-    if end < len(rows):
-        btns.append(
-            InlineKeyboardButton(
-                "➡️ Next",
-                callback_data=f"custpage:{page+1}"
-            )
-        )
+    # ===== NORMAL EDIT =====
+    bot.answer_callback_query(c.id)
 
-    if btns:
-        kb.row(*btns)
+    text, kb = build_customer_text(c.from_user.id, page)
 
     try:
         bot.edit_message_text(
-            final_text,
+            text,
             c.message.chat.id,
             c.message.message_id,
             parse_mode="HTML",
@@ -2030,8 +1976,6 @@ def customer_pagination(c):
         )
     except:
         pass
-
-    bot.answer_callback_query(c.id)
 
 
 

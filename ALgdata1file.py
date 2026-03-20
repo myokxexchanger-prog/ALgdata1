@@ -1983,6 +1983,62 @@ def customer_pagination(c):
 
 
 
+# ================= USERS COUNTER SYSTEM =================
+@bot.message_handler(commands=["users"])
+def count_all_users(msg):
+
+    if msg.from_user.id != ADMIN_ID:
+        return
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    try:
+        # ===== COUNT ALL UNIQUE USERS (PAID + UNPAID) =====
+        cur.execute("""
+            SELECT COUNT(DISTINCT user_id)
+            FROM orders
+        """)
+        total_users = cur.fetchone()[0] or 0
+
+        # ===== COUNT PAID USERS =====
+        cur.execute("""
+            SELECT COUNT(DISTINCT user_id)
+            FROM orders
+            WHERE paid = 1
+        """)
+        paid_users = cur.fetchone()[0] or 0
+
+        # ===== COUNT PENDING USERS =====
+        cur.execute("""
+            SELECT COUNT(DISTINCT user_id)
+            FROM orders
+            WHERE paid = 0
+        """)
+        pending_users = cur.fetchone()[0] or 0
+
+        # ===== MESSAGE =====
+        bot.send_message(
+            msg.chat.id,
+            f"""🎉 <b>OUR USERS</b>
+
+👥 Total Users: <b>{total_users}</b>
+
+✅ Paid Users: <b>{paid_users}</b>
+⏳ Pending Users: <b>{pending_users}</b>
+""",
+            parse_mode="HTML"
+        )
+
+    except:
+        bot.reply_to(msg, "❌ Failed to fetch users.")
+
+    finally:
+        cur.close()
+        conn.close()
+
+
+
 @bot.callback_query_handler(func=lambda c: c.data == "vipgroup")
 def vip_group_info(call):
 

@@ -1983,6 +1983,149 @@ def customer_pagination(c):
 
 
 
+# ================= ADMIN SALLAH GIFT =================
+@bot.message_handler(commands=["sallah"])
+def send_sallah_gift(msg):
+
+    admin_id = msg.from_user.id
+
+    if admin_id != ADMIN_ID:
+        return
+
+    try:
+        parts = msg.text.replace("/sallah", "").strip().split(",")
+
+        if len(parts) != 2:
+            bot.reply_to(msg, "Usage: /sallah user_id, amount\nExample: /sallah 123456789, 300")
+            return
+
+        user_id = int(parts[0].strip())
+        amount = int(parts[1].strip())
+
+        if amount <= 0:
+            bot.reply_to(msg, "❌ Invalid amount.")
+            return
+
+    except:
+        bot.reply_to(msg, "❌ Invalid format.\nUse: /sallah 123456789, 300")
+        return
+
+    wallet_conn = get_wallet_conn()
+    wallet_cur = wallet_conn.cursor()
+
+    try:
+        # ================= CHECK ADMIN BALANCE =================
+        wallet_cur.execute(
+            "SELECT balance FROM wallet_balance WHERE user_id=%s",
+            (admin_id,)
+        )
+        row = wallet_cur.fetchone()
+
+        admin_balance = int(row[0]) if row else 0
+
+        if admin_balance < amount:
+            bot.reply_to(msg, f"❌ Insufficient balance.\nYour Balance: ₦{admin_balance}")
+            return
+
+        # ================= GET USER ORDERS =================
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute(
+            "SELECT COUNT(*) FROM orders WHERE user_id=%s AND paid=1",
+            (user_id,)
+        )
+        order_row = cur.fetchone()
+        total_orders = order_row[0] if order_row else 0
+
+        cur.close()
+        conn.close()
+
+        # ================= DEDUCT ADMIN =================
+        wallet_cur.execute(
+            """
+            UPDATE wallet_balance
+            SET balance = balance - %s,
+                updated_at = NOW()
+            WHERE user_id=%s
+            """,
+            (amount, admin_id)
+        )
+
+        # ================= CREDIT USER =================
+        wallet_cur.execute(
+            """
+            INSERT INTO wallet_balance (user_id, balance)
+            VALUES (%s,%s)
+            ON CONFLICT (user_id)
+            DO UPDATE SET
+            balance = wallet_balance.balance + EXCLUDED.balance,
+            updated_at = NOW()
+            """,
+            (user_id, amount)
+        )
+
+        import time
+        ref = f"sallah_{admin_id}_{int(time.time())}"
+
+        # ================= SAVE TRANSACTION =================
+        wallet_cur.execute(
+            """
+            INSERT INTO wallet_transactions
+            (user_id, amount, type, reference, description)
+            VALUES (%s,%s,'sallah',%s,'Happy Sallah Gift')
+            """,
+            (user_id, amount, ref)
+        )
+
+        wallet_conn.commit()
+
+        # ================= MESSAGE TO USER =================
+        try:
+            bot.send_message(
+                user_id,
+                f"""🌙✨ Barka da Sallah!
+
+🎁 Wannan ita ce kyautarka daga Algaita Movie Store saboda goyon bayan da ka nuna wajen siyan fina-finai a wurinmu ❤️
+
+💰 An saka maka kyauta a wallet ɗinka — gwargwadon yadda ka siya fim a wurinmu.
+👉 Ka duba wallet ɗinka an tura maka kuɗinka.
+
+📦 Your Orders: {total_orders}
+💰 Kyautarka: ₦{amount}
+
+Muna godiya sosai 🙏  
+Za mu ci gaba da baka kyauta a duk lokacin da muka raba 🎬🔥
+
+👉 Ka iya amfani da wannan kuɗin domin siyan fina-finai a bot ɗinmu.
+
+🙏 Muna fatan duk lokacin da kake buƙatar wani fim, ba za ka manta da Algaita Movie Store ba.
+
+— Algaita Movie Store  
+🤖 @CEOalgaitabot"""
+            )
+        except:
+            pass
+
+        # ================= ADMIN CONFIRM =================
+        bot.reply_to(
+            msg,
+            f"""✅ An turawa user
+
+🆔 <code>{user_id}</code>
+💰 ₦{amount}""",
+            parse_mode="HTML"
+        )
+
+    except Exception:
+        wallet_conn.rollback()
+        bot.reply_to(msg, "❌ Failed to send gift.")
+
+    finally:
+        wallet_cur.close()
+        wallet_conn.close()
+
+
 # ================= EID BROADCAST SYSTEM =================
 from telebot.apihelper import ApiTelegramException
 import time

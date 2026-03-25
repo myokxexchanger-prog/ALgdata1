@@ -806,6 +806,8 @@ VIP_GROUP_ID = -1003656360408
 PAYMENT_NOTIFY_GROUP = -1003555015230
 STORAGE_CHANNEL = -1003520788779
 
+PAYMENT_NOTIFY_GROUP_WALLET = -1003803657269
+
 SEND_ADMIN_PAYMENT_NOTIF = False
 
 ADMIN_USERNAME = "CEOalgaitabot"
@@ -3733,10 +3735,10 @@ You used wallet balance
     )
 
     # ================= NOTIFY GROUP =================
-    if PAYMENT_NOTIFY_GROUP:
+    if PAYMENT_NOTIFY_GROUP_WALLET:
 
         bot.send_message(
-            PAYMENT_NOTIFY_GROUP,
+            PAYMENT_NOTIFY_GROUP_WALLET,
             f"""✅ <b>NEW PAYMENT SUCCESSFUL</b>
 
 👤 <b>User Full Name:</b> {full_name}

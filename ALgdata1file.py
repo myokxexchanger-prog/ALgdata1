@@ -4638,6 +4638,37 @@ def howto_language_switch(c):
 
     bot.answer_callback_query(c.id)
 
+
+@bot.message_handler(commands=["sales"])
+def admin_sales_command(msg):
+    if msg.from_user.id != ADMIN_ID:
+        return
+
+    now = _ng_now()
+    since = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    send_sales_report(
+        since,
+        f"📊 MONTHLY SALES REPORT ({now.strftime('%B %Y')})",
+        ADMIN_ID,
+        silent_if_empty=False
+    )
+
+# --- Added callback handler for in-bot "View All Movies" buttons ---
+@bot.callback_query_handler(func=lambda c: c.data in ("view_all_movies","viewall"))
+def _callback_view_all(call):
+    uid = call.from_user.id
+    # Build a small message-like object expected by send_weekly_list
+    class _Msg:
+        def __init__(self, uid):
+            self.chat = type('X', (), {'id': uid})
+            self.text = ""
+    try:
+        send_weekly_list(_Msg(uid))
+        bot.answer_callback_query(call.id)
+    except Exception as e:
+        bot.answer_callback_query(call.id, "An samu matsala wajen nuna jerin.")
+
  #======================================================
 
 # ========= HARD START BUYD =========

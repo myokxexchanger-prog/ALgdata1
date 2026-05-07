@@ -782,6 +782,11 @@ WARNING_2_UNIT = "days"
 ADMIN_ID = 6603268127
 OTP_ADMIN_ID = 6603268127
 
+WARNING_1_VALUE = 5  # Kwanakin da za a tura gargadi na farko
+WARNING_2_VALUE = 2  # Kwanakin da za a tura gargadi na karshe
+
+
+
 BOT_USERNAME = "Algaitabot"
 CHANNEL = "@Algaitamoviestore"
 
@@ -2850,8 +2855,14 @@ def vip_expiry_checker():
   
 threading.Thread(target=vip_expiry_checker, daemon=True).start()
 
+
 # ==========================================
-# VIP WARNING SYSTEM (HAUSA VERSION)
+# VIP WARNING SETTINGS (SAKA WANNAN A SAMA)
+# ==========================================
+
+
+# ==========================================
+# VIP WARNING SYSTEM (SMART VERSION)
 # ==========================================
 
 import threading
@@ -2859,9 +2870,7 @@ import time
 from datetime import datetime, timedelta
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-
 def vip_warning_system():
-
     while True:
         try:
             conn = get_conn()
@@ -2869,9 +2878,7 @@ def vip_warning_system():
 
             now = datetime.now()
 
-            # ===============================
-            # GET ALL ACTIVE USERS
-            # ===============================
+            # Muna dauko user_id, expire_at da flags don gudun double messaging
             cur.execute("""
                 SELECT user_id, expire_at, warn1_sent, warn2_sent
                 FROM vip_members
@@ -2882,115 +2889,69 @@ def vip_warning_system():
             users = cur.fetchall()
 
             for user_id, expire_at, warn1_sent, warn2_sent in users:
-
-                if not expire_at:
-                    continue
-
+                
                 remaining = expire_at - now
-                remaining_seconds = remaining.total_seconds()
-
-                if remaining_seconds <= 0:
-                    continue
+                remaining_days = remaining.days
 
                 # =================================
-                # CONVERT WARNING 1 THRESHOLD
+                # WARNING 1 (GARGADI NA FARKO)
                 # =================================
-                if WARNING_1_UNIT == "minutes":
-                    threshold1 = timedelta(minutes=WARNING_1_VALUE)
-                    time_left_value = int(remaining_seconds // 60)
-                    unit_text = "minti"
-                else:
-                    threshold1 = timedelta(days=WARNING_1_VALUE)
-                    time_left_value = remaining.days
-                    unit_text = "kwana"
-
-                # =================================
-                # WARNING 1
-                # =================================
-                if not warn1_sent and remaining <= threshold1:
-
+                # Zai duba idan kwanakin da suka rage sun yi daidai da WARNING_1_VALUE
+                # Sannan zai duba idan ba a tura masa ba (not warn1_sent)
+                if remaining_days == WARNING_1_VALUE and not warn1_sent:
                     try:
                         kb = InlineKeyboardMarkup()
-                        kb.add(
-                            InlineKeyboardButton(
-                                "💳REPAY NOW",
-                                callback_data="subvip"
-                            )
-                        )
+                        kb.add(InlineKeyboardButton("💳REPAY NOW", callback_data="subvip"))
 
                         bot.send_message(
                             user_id,
                             f"⏳ TUNATARWA ZANYI MAKA\n\n"
-                            f"Subscription ɗinka (ALGAITA VIP) zai kare nan da {time_left_value} {unit_text}.\n\n"
-                            f"Muna matuƙar godiya da kasancewarka tare da mu ❤️\n"
-                            f"Da fatan za ka sabunta kafin lokacin ya ƙare domin cigaba da more VIP group.",
+                            f"Sanarwa:- Nazo na sanar da kai lokacin Biyan kudin watanka ya kusa karewa, saura kwana {WARNING_1_VALUE} kacal. Kayi kokari ka sabunta domin cigaba da kasancewa a VIP.\n\n"
+                            f"Muna matuƙar godiya da kasancewarka tare da mu ❤️",
                             reply_markup=kb
                         )
 
-                        cur.execute("""
-                            UPDATE vip_members
-                            SET warn1_sent=TRUE
-                            WHERE user_id=%s
-                        """, (user_id,))
+                        # Saka True a Database domin kada a sake tura masa a wannan zagayen
+                        cur.execute("UPDATE vip_members SET warn1_sent=TRUE WHERE user_id=%s", (user_id,))
                         conn.commit()
-
                     except:
                         pass
 
                 # =================================
-                # CONVERT WARNING 2 THRESHOLD
+                # WARNING 2 (GARGADI NA KARSHE)
                 # =================================
-                if WARNING_2_UNIT == "minutes":
-                    threshold2 = timedelta(minutes=WARNING_2_VALUE)
-                    time_left_value2 = int(remaining_seconds // 60)
-                    unit_text2 = "minti"
-                else:
-                    threshold2 = timedelta(days=WARNING_2_VALUE)
-                    time_left_value2 = remaining.days
-                    unit_text2 = "kwana"
-
-                # =================================
-                # WARNING 2 (FINAL)
-                # =================================
-                if not warn2_sent and remaining <= threshold2:
-
+                # Zai duba idan kwanakin da suka rage sun yi daidai da WARNING_2_VALUE
+                elif remaining_days == WARNING_2_VALUE and not warn2_sent:
                     try:
                         kb = InlineKeyboardMarkup()
-                        kb.add(
-                            InlineKeyboardButton(
-                                "💳REPAY NOW",
-                                callback_data="subvip"
-                            )
-                        )
+                        kb.add(InlineKeyboardButton("💳REPAY NOW", callback_data="subvip"))
 
                         bot.send_message(
                             user_id,
-                            f"⚠NAZO NA SANAR DAKAI\n\n"
-                            f"Subscription ɗinka (ALGAITA VIP) zai kare nan da {time_left_value2} {unit_text2}.\n\n"
+                            f"⚠ NAZO NA SANAR DAKAI\n\n"
+                            f"Tunatarwa:- Har yanzu baka sabunta biyan kudin watanka ba, kuma saura kwana {WARNING_2_VALUE} kacal ya kare.\n\n"
                             f"Idan ba ka sabunta ba kafin lokacin ya cika, za a cire ka daga VIP group.\n"
                             f"Da fatan za ka sabunta yanzu domin kada a cire ka.",
                             reply_markup=kb
                         )
 
-                        cur.execute("""
-                            UPDATE vip_members
-                            SET warn2_sent=TRUE
-                            WHERE user_id=%s
-                        """, (user_id,))
+                        # Saka True a Database domin tsaro
+                        cur.execute("UPDATE vip_members SET warn2_sent=TRUE WHERE user_id=%s", (user_id,))
                         conn.commit()
-
                     except:
                         pass
 
             cur.close()
             conn.close()
 
-        except:
+        except Exception as e:
+            print(f"Error in warning system: {e}")
             pass
 
-        time.sleep(7200)  # yana duba duk 30 seconds
+        # Yana duba duk bayan awa 12 domin kama kwanakin daidai
+        time.sleep(43200)
 
-
+# Fara gudanar da warning system a gefe
 threading.Thread(target=vip_warning_system, daemon=True).start()
 
 
